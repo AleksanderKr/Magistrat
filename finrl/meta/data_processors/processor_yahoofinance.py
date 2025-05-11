@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime
 import time
+import os
 from datetime import date
+from curl_cffi import requests
 from datetime import timedelta
 from sqlite3 import Timestamp
 from typing import Any
@@ -28,6 +30,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from stockstats import StockDataFrame as Sdf
 from webdriver_manager.chrome import ChromeDriverManager
+
+from finrl.config import DATA_SAVE_DIR
+
 
 ### Added by aymeric75 for scrap_data function
 
@@ -238,26 +243,56 @@ class YahooFinanceProcessor:
         end_date = pd.Timestamp(end_date)
         delta = timedelta(days=1)
         data_df = pd.DataFrame()
+        os.makedirs(DATA_SAVE_DIR, exist_ok=True)
+        session = requests.Session(impersonate="chrome")
         for tic in ticker_list:
+            cache_path = f"./{DATA_SAVE_DIR}/{tic}_{start_date.date()}_{end_date.date()}_{time_interval}.parquet"
+            if os.path.exists(cache_path):
+                print(f"✅ Loading cached data for {tic} from {cache_path}")
+                temp_df = pd.read_parquet(cache_path)
+                data_df = pd.concat([data_df, temp_df], ignore_index=True)
+                continue
+            all_temp = []
             current_tic_start_date = start_date
-            while (
-                current_tic_start_date <= end_date
-            ):  # downloading daily to workaround yfinance only allowing  max 7 calendar (not trading) days of 1 min data per single download
+            while current_tic_start_date <= end_date:
+                if current_tic_start_date.weekday() >= 5:
+                    current_tic_start_date += delta
+                    continue
+
                 temp_df = yf.download(
                     tic,
                     start=current_tic_start_date,
                     end=current_tic_start_date + delta,
                     interval=self.time_interval,
                     proxy=proxy,
+                    session=session,
+                    threads=False,
+                    progress=False,
                 )
+                if temp_df.empty:
+                    print(f"No data for {tic} on {current_tic_start_date.date()}")
+                    current_tic_start_date += delta
+                    continue
+
                 if temp_df.columns.nlevels != 1:
                     temp_df.columns = temp_df.columns.droplevel(1)
 
                 temp_df["tic"] = tic
-                data_df = pd.concat([data_df, temp_df])
+                all_temp.append(temp_df)
                 current_tic_start_date += delta
 
-        data_df = data_df.reset_index().drop(columns=["Adj Close"])
+            if all_temp:
+                temp_df = pd.concat(all_temp)
+                temp_df.to_parquet(cache_path)
+                print(f"💾 Cached data for {tic} to {cache_path}")
+                data_df = pd.concat([data_df, temp_df], ignore_index=True)
+
+        data_df = data_df.reset_index()
+        if data_df.empty:
+            raise ValueError(f"No data fetched for tickers {ticker_list} between {self.start} and {self.end}")
+        if "Adj Close" in data_df.columns:
+            data_df = data_df.drop(columns=["Adj Close"])
+
         # convert the column names to match processor_alpaca.py as far as poss
         data_df.columns = [
             "timestamp",
@@ -302,7 +337,7 @@ class YahooFinanceProcessor:
                 df.tic == tic
             ]  # extract just the rows from downloaded data relating to this tic
             for i in range(tic_df.shape[0]):  # fill empty DataFrame using original data
-                tmp_timestamp = tic_df.iloc[i]["timestamp"]
+                tmp_timestamp = pd.Timestamp(tic_df.iloc[i]["timestamp"])
                 if tmp_timestamp.tzinfo is None:
                     tmp_timestamp = tmp_timestamp.tz_localize(NY)
                 else:
@@ -326,6 +361,7 @@ class YahooFinanceProcessor:
                             first_valid_close,
                             0.0,
                         ]
+                        tmp_df.index.values[0] = tmp_df.index.values[i]
                         break
 
             # if the close price of the first row is still NaN (All the prices are NaN in this case)
@@ -418,6 +454,7 @@ class YahooFinanceProcessor:
         """
         vix_df = self.download_data(["VIXY"], self.start, self.end, self.time_interval)
         cleaned_vix = self.clean_data(vix_df)
+        cleaned_vix = cleaned_vix[cleaned_vix["timestamp"] >= pd.Timestamp(self.start)]
         print("cleaned_vix\n", cleaned_vix)
         vix = cleaned_vix[["timestamp", "close"]]
         print('cleaned_vix[["timestamp", "close"]\n', vix)
@@ -596,6 +633,7 @@ class YahooFinanceProcessor:
                                 first_valid_close,
                                 0.0,
                             ]
+                            tmp_df.index.values[0] = tmp_df.index.values[i]
                             break
                 if str(tmp_df.iloc[0]["close"]) == "nan":
                     print(
