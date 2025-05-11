@@ -26,6 +26,9 @@ parts/
 sdist/
 var/
 wheels/
+datasets/
+test_ppo/
+trained_models/
 pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 from argparse import ArgumentParser
 from typing import List
@@ -60,7 +61,10 @@ def main() -> int:
         from finrl import train
 
         env = StockTradingEnv
-
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        model_name = "ppo"
+        cwd = os.path.join(TRAINED_MODEL_DIR, f"{model_name}_{timestamp}")
+        os.makedirs(cwd, exist_ok=True)
         # demo for elegantrl
         kwargs = (
             {}
@@ -74,8 +78,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ppo",
-            cwd="./test_ppo",
+            model_name=model_name,
+            cwd=cwd,
             erl_params=ERL_PARAMS,
             break_step=1e5,
             kwargs=kwargs,

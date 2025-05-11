@@ -270,7 +270,6 @@ class YahooFinanceProcessor:
                     progress=False,
                 )
                 if temp_df.empty:
-                    print(f"No data for {tic} on {current_tic_start_date.date()}")
                     current_tic_start_date += delta
                     continue
 
@@ -288,8 +287,6 @@ class YahooFinanceProcessor:
                 data_df = pd.concat([data_df, temp_df], ignore_index=True)
 
         data_df = data_df.reset_index()
-        if data_df.empty:
-            raise ValueError(f"No data fetched for tickers {ticker_list} between {self.start} and {self.end}")
         if "Adj Close" in data_df.columns:
             data_df = data_df.drop(columns=["Adj Close"])
 
@@ -361,7 +358,6 @@ class YahooFinanceProcessor:
                             first_valid_close,
                             0.0,
                         ]
-                        tmp_df.index.values[0] = tmp_df.index.values[i]
                         break
 
             # if the close price of the first row is still NaN (All the prices are NaN in this case)
@@ -454,7 +450,6 @@ class YahooFinanceProcessor:
         """
         vix_df = self.download_data(["VIXY"], self.start, self.end, self.time_interval)
         cleaned_vix = self.clean_data(vix_df)
-        cleaned_vix = cleaned_vix[cleaned_vix["timestamp"] >= pd.Timestamp(self.start)]
         print("cleaned_vix\n", cleaned_vix)
         vix = cleaned_vix[["timestamp", "close"]]
         print('cleaned_vix[["timestamp", "close"]\n', vix)
@@ -633,7 +628,6 @@ class YahooFinanceProcessor:
                                 first_valid_close,
                                 0.0,
                             ]
-                            tmp_df.index.values[0] = tmp_df.index.values[i]
                             break
                 if str(tmp_df.iloc[0]["close"]) == "nan":
                     print(
