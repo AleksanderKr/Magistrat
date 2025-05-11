@@ -14,6 +14,7 @@ from typing import Optional
 from typing import Type
 from typing import TypeVar
 from typing import Union
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -28,6 +29,9 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from stockstats import StockDataFrame as Sdf
 from webdriver_manager.chrome import ChromeDriverManager
+
+from finrl.config import DATA_SAVE_DIR
+
 
 ### Added by aymeric75 for scrap_data function
 
@@ -66,8 +70,73 @@ class YahooFinanceProcessor:
     ...
     """
 
-    ######## ADDED BY aymeric75 ###################
 
+    @staticmethod
+    def pad_prices(df: pd.DataFrame,
+                   price_col: str = "close",
+                   date_col: str = "timestamp",
+                   tic_col: str = "tic",
+                   freq: str = "B") -> pd.DataFrame:
+        """
+        Ensure every (date, tic) combination exists.
+        Missing prices are filled with forward-fill, then back-fill (for
+        leading NaNs). Works on a long-format dataframe and returns the
+        same schema the FinRL processors expect.
+
+        Parameters
+        ----------
+        df : DataFrame
+            Must contain columns [date_col, tic_col, price_col] plus any others.
+        price_col, date_col, tic_col : str
+            Column names to use.
+        freq : str
+            Pandas date offset alias – 'B' = business day, 'D' = calendar day, etc.
+
+        Returns
+        -------
+        DataFrame
+            Same columns as input, but fully padded and sorted.
+        """
+        df = df.copy()
+
+        # 1. Make sure timestamp is a proper DateTimeIndex
+        df[date_col] = (
+            pd.to_datetime(df[date_col], utc=True)  # parse tz-aware & tz-naive together
+            .dt.tz_localize(None)  # drop the tz info for pivoting
+        )
+
+        # 2. Get full date range covering ALL tickers
+        full_index = pd.date_range(df[date_col].min(),
+                                   df[date_col].max(),
+                                   freq=freq)
+
+        # 3. Pivot to a date × ticker matrix for fast padding
+        mat = (df.pivot(index=date_col,
+                        columns=tic_col,
+                        values=price_col)
+               .reindex(full_index))
+
+        # 4. Fill the gaps (forward, then backward for the very first NaNs)
+        mat = mat.ffill().bfill()
+
+        # 5. Return to long format so the rest of FinRL is unaffected
+        padded = (mat
+                  .reset_index(names=date_col)
+                  .melt(id_vars=date_col,
+                        var_name=tic_col,
+                        value_name=price_col)
+                  .sort_values([date_col, tic_col])
+                  .reset_index(drop=True))
+
+        # 6. Merge back all the technical indicator columns
+        other_cols = [c for c in df.columns
+                      if c not in (date_col, tic_col, price_col)]
+        return (padded
+                .merge(df.drop(columns=price_col),
+                       on=[date_col, tic_col],
+                       how="left"))
+
+    ######## ADDED BY aymeric75 ###################
     def date_to_unix(self, date_str) -> int:
         """Convert a date string in yyyy-mm-dd format to Unix timestamp."""
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
@@ -219,56 +288,94 @@ class YahooFinanceProcessor:
 
         return time_interval
 
+    from pathlib import Path
+
     def download_data(
-        self,
-        ticker_list: list[str],
-        start_date: str,
-        end_date: str,
-        time_interval: str,
-        proxy: str | dict = None,
+            self,
+            ticker_list: list[str],
+            start_date: str,
+            end_date: str,
+            time_interval: str,
+            proxy: str | dict = None,
     ) -> pd.DataFrame:
         time_interval = self.convert_interval(time_interval)
 
+        # remember arguments for later functions
         self.start = start_date
         self.end = end_date
         self.time_interval = time_interval
 
-        # Download and save the data in a pandas DataFrame
-        start_date = pd.Timestamp(start_date)
-        end_date = pd.Timestamp(end_date)
-        delta = timedelta(days=1)
+        # ---------- NEW: common cache folder -------------------------------
+        cache_dir = Path(DATA_SAVE_DIR)  # DATA_SAVE_DIR is already created in main.py
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        # -------------------------------------------------------------------
+
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date)
+
+        intraday = self.time_interval.endswith("m") or self.time_interval in {"1h"}
+        chunk = timedelta(days=7 if intraday else (end_ts - start_ts).days + 1)
+
         data_df = pd.DataFrame()
         for tic in ticker_list:
-            current_tic_start_date = start_date
-            while (
-                current_tic_start_date <= end_date
-            ):  # downloading daily to workaround yfinance only allowing  max 7 calendar (not trading) days of 1 min data per single download
-                temp_df = yf.download(
+
+            # ---------- NEW: filename and loading -------------------------
+            fname = f"{tic}_{start_date}_{end_date}_{time_interval}.parquet"
+            fpath = cache_dir / fname
+            if fpath.exists():
+                tmp_df = pd.read_parquet(fpath)
+                data_df = pd.concat([data_df, tmp_df])
+                continue
+            # --------------------------------------------------------------
+
+            current = start_ts
+            pieces = []
+            while current <= end_ts:
+                tmp_df = yf.download(
                     tic,
-                    start=current_tic_start_date,
-                    end=current_tic_start_date + delta,
+                    start=current,
+                    end=min(current + chunk, end_ts + timedelta(days=1)),
                     interval=self.time_interval,
                     proxy=proxy,
+                    progress=False,
                 )
-                if temp_df.columns.nlevels != 1:
-                    temp_df.columns = temp_df.columns.droplevel(1)
+                if tmp_df.empty:
+                    current += chunk
+                    continue
+                if tmp_df.columns.nlevels != 1:
+                    tmp_df.columns = tmp_df.columns.droplevel(1)
+                tmp_df["tic"] = tic
+                pieces.append(tmp_df)
+                current += chunk
 
-                temp_df["tic"] = tic
-                data_df = pd.concat([data_df, temp_df])
-                current_tic_start_date += delta
+            if not pieces:  # no data fetched (IPO later than start, etc.)
+                continue
+            tmp_df = pd.concat(pieces)
+            # ---------- NEW: save to cache --------------------------------
+            tmp_df.to_parquet(fpath, compression="snappy")
+            # --------------------------------------------------------------
+            data_df = pd.concat([data_df, tmp_df])
 
-        data_df = data_df.reset_index().drop(columns=["Adj Close"])
-        # convert the column names to match processor_alpaca.py as far as poss
-        data_df.columns = [
-            "timestamp",
-            "close",
-            "high",
-            "low",
-            "open",
-            "volume",
-            "tic",
-        ]
+        # still return the unified dataframe expected by downstream code
+        if data_df.empty:
+            raise ValueError("No price data downloaded or found in cache.")
 
+        data_df = (
+            data_df.reset_index()
+            .drop(columns=["Adj Close"], errors="ignore")
+            .rename(
+                columns={
+                    "Date": "timestamp",
+                    "Open": "open",
+                    "High": "high",
+                    "Low": "low",
+                    "Close": "close",
+                    "Volume": "volume",
+                }
+            )
+        )
+        # ensure column order
+        data_df = data_df[["timestamp", "close", "high", "low", "open", "volume", "tic"]]
         return data_df
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -373,9 +480,7 @@ class YahooFinanceProcessor:
 
         return new_df
 
-    def add_technical_indicator(
-        self, data: pd.DataFrame, tech_indicator_list: list[str]
-    ):
+    def add_technical_indicator(self, data: pd.DataFrame, tech_indicator_list: list[str]) -> pd.DataFrame:
         """
         calculate technical indicators
         use stockstats package to add technical inidactors
@@ -407,7 +512,23 @@ class YahooFinanceProcessor:
                 on=["tic", "timestamp"],
                 how="left",
             )
-        df = df.sort_values(by=["timestamp", "tic"])
+        # ─────────────────────────────────────────────────────────
+        # Fill missing values smartly after adding technical indicators
+        # ─────────────────────────────────────────────────────────
+
+        for col in tech_indicator_list:
+            if col in df.columns:
+                if col in ["macd", "cci_30", "dx_30"]:
+                    df[col] = df[col].fillna(0.0)  # momentum indicators neutral
+                elif col in ["rsi_30"]:
+                    df[col] = df[col].fillna(50.0)  # RSI neutral
+                elif col in ["boll_ub", "boll_lb"]:
+                    df[col] = df[col].fillna(df["close"])  # fallback to close price
+                else:
+                    df[col] = df[col].fillna(0.0)  # default safe fallback
+
+        df = df.sort_values(by=["timestamp", "tic"]).reset_index(drop=True)
+
         return df
 
     def add_vix(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -416,7 +537,7 @@ class YahooFinanceProcessor:
         :param data: (df) pandas dataframe
         :return: (df) pandas dataframe
         """
-        vix_df = self.download_data(["VIXY"], self.start, self.end, self.time_interval)
+        vix_df = self.download_data(["^VIX"], self.start, self.end, self.time_interval)
         cleaned_vix = self.clean_data(vix_df)
         print("cleaned_vix\n", cleaned_vix)
         vix = cleaned_vix[["timestamp", "close"]]
@@ -497,7 +618,7 @@ class YahooFinanceProcessor:
     def df_to_array(
         self, df: pd.DataFrame, tech_indicator_list: list[str], if_vix: bool
     ) -> list[np.ndarray]:
-        df = df.copy()
+        df = self.pad_prices(df.copy())
         unique_ticker = df.tic.unique()
         if_first_time = True
         for tic in unique_ticker:
