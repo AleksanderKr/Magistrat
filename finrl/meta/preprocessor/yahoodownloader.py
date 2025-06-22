@@ -54,6 +54,7 @@ class YahooDownloader:
                 end=self.end_date,
                 proxy=proxy,
                 auto_adjust=auto_adjust,
+                repair=True,
             )
             if temp_df.columns.nlevels != 1:
                 temp_df.columns = temp_df.columns.droplevel(1)

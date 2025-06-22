@@ -338,6 +338,7 @@ class YahooFinanceProcessor:
                     interval=self.time_interval,
                     proxy=proxy,
                     progress=False,
+                    repair=True,
                 )
                 if tmp_df.empty:
                     current += chunk
