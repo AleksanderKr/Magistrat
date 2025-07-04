@@ -2,6 +2,13 @@ from __future__ import annotations
 
 SINGLE_TICKER = ["AAPL"]
 
+DOW_5_TEST = [
+    "AXP",
+    "AMGN",
+    "AAPL",
+    "BA",
+    "CAT",
+]
 # Dow 30 constituents in 2021/10
 # check https://wrds-www.wharton.upenn.edu/ for U.S. index constituents
 DOW_30_TICKER = [

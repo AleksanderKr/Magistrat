@@ -70,56 +70,42 @@ class YahooFinanceProcessor:
     ...
     """
 
-
     @staticmethod
-    def pad_prices(df: pd.DataFrame,
-                   price_col: str = "close",
-                   date_col: str = "timestamp",
-                   tic_col: str = "tic",
-                   freq: str = "B") -> pd.DataFrame:
+    def pad_prices(
+            df: pd.DataFrame,
+            price_col: str = "close",
+            date_col: str = "timestamp",
+            tic_col: str = "tic",
+            calendar: Optional[pd.DatetimeIndex] = None
+    ) -> pd.DataFrame:
         """
-        Ensure every (date, tic) combination exists.
-        Missing prices are filled with forward-fill, then back-fill (for
-        leading NaNs). Works on a long-format dataframe and returns the
-        same schema the FinRL processors expect.
+        Uzupełnia brakujące kombinacje (data, ticker) bez dodawania dni,
+        w które żadna spółka nie była notowana.
 
-        Parameters
-        ----------
-        df : DataFrame
-            Must contain columns [date_col, tic_col, price_col] plus any others.
-        price_col, date_col, tic_col : str
-            Column names to use.
-        freq : str
-            Pandas date offset alias – 'B' = business day, 'D' = calendar day, etc.
-
-        Returns
-        -------
-        DataFrame
-            Same columns as input, but fully padded and sorted.
+        Jeśli podasz argument `calendar`, zostanie użyty zamiast unii dat.
         """
+
         df = df.copy()
 
-        # 1. Make sure timestamp is a proper DateTimeIndex
-        df[date_col] = (
-            pd.to_datetime(df[date_col], utc=True)  # parse tz-aware & tz-naive together
-            .dt.tz_localize(None)  # drop the tz info for pivoting
-        )
+        # 1. porządkuj oś czasu
+        df[date_col] = pd.to_datetime(df[date_col], utc=True).dt.tz_localize(None)
 
-        # 2. Get full date range covering ALL tickers
-        full_index = pd.date_range(df[date_col].min(),
-                                   df[date_col].max(),
-                                   freq=freq)
+        # 2. pełny indeks dat: unia istniejących lub podany kalendarz
+        if calendar is None:
+            full_index = pd.DatetimeIndex(sorted(df[date_col].unique()))
+        else:
+            full_index = pd.DatetimeIndex(pd.to_datetime(calendar))
 
-        # 3. Pivot to a date × ticker matrix for fast padding
+        # 3. macierz data × ticker
         mat = (df.pivot(index=date_col,
                         columns=tic_col,
                         values=price_col)
                .reindex(full_index))
 
-        # 4. Fill the gaps (forward, then backward for the very first NaNs)
+        # 4. forward-fill, a brak wiodący – backward-fill
         mat = mat.ffill().bfill()
 
-        # 5. Return to long format so the rest of FinRL is unaffected
+        # 5. z powrotem do long-format
         padded = (mat
                   .reset_index(names=date_col)
                   .melt(id_vars=date_col,
@@ -128,13 +114,23 @@ class YahooFinanceProcessor:
                   .sort_values([date_col, tic_col])
                   .reset_index(drop=True))
 
-        # 6. Merge back all the technical indicator columns
+        # 6. scal pozostałe kolumny; tam gdzie powstały nowe wiersze,
+        #    wolumen = 0 (albo inna neutralna wartość)
         other_cols = [c for c in df.columns
                       if c not in (date_col, tic_col, price_col)]
-        return (padded
-                .merge(df.drop(columns=price_col),
-                       on=[date_col, tic_col],
-                       how="left"))
+
+        out = (padded
+               .merge(df.drop(columns=price_col),
+                      on=[date_col, tic_col],
+                      how="left"))
+
+        for col in other_cols:
+            if out[col].dtype.kind in "fi":  # liczby
+                out[col] = out[col].fillna(0.0)
+            else:  # kategorie / obiekty
+                out[col] = out[col].fillna(method="ffill").fillna(method="bfill")
+
+        return out
 
     ######## ADDED BY aymeric75 ###################
     def date_to_unix(self, date_str) -> int:
@@ -338,6 +334,7 @@ class YahooFinanceProcessor:
                     interval=self.time_interval,
                     proxy=proxy,
                     progress=False,
+                    auto_adjust=True,
                     repair=True,
                 )
                 if tmp_df.empty:
@@ -386,7 +383,7 @@ class YahooFinanceProcessor:
         trading_days = self.get_trading_days(start=self.start, end=self.end)
         # produce full timestamp index
         if self.time_interval == "1d":
-            times = trading_days
+            times = pd.to_datetime(trading_days)
         elif self.time_interval == "1m":
             times = []
             for day in trading_days:
@@ -404,20 +401,20 @@ class YahooFinanceProcessor:
         new_df = pd.DataFrame()
         for tic in tic_list:
             tmp_df = pd.DataFrame(
-                columns=["open", "high", "low", "close", "volume"], index=times
+                columns=["open", "high", "low", "close", "volume"], index=times, dtype=float
             )
             tic_df = df[
                 df.tic == tic
             ]  # extract just the rows from downloaded data relating to this tic
             for i in range(tic_df.shape[0]):  # fill empty DataFrame using original data
                 tmp_timestamp = tic_df.iloc[i]["timestamp"]
-                if tmp_timestamp.tzinfo is None:
-                    tmp_timestamp = tmp_timestamp.tz_localize(NY)
-                else:
-                    tmp_timestamp = tmp_timestamp.tz_convert(NY)
-                tmp_df.loc[tmp_timestamp] = tic_df.iloc[i][
-                    ["open", "high", "low", "close", "volume"]
-                ]
+                tmp_timestamp = pd.to_datetime(tmp_timestamp).tz_localize(None)
+
+                row = tic_df.iloc[i][["open", "high", "low", "close", "volume"]]
+                if row.isna().all():
+                    continue
+                tmp_df.loc[tmp_timestamp] = row
+
             # print("(9) tmp_df\n", tmp_df.to_string()) # print ALL dataframe to check for missing rows from download
 
             # if close on start date is NaN, fill data with first valid close
@@ -527,6 +524,9 @@ class YahooFinanceProcessor:
                     df[col] = df[col].fillna(df["close"])  # fallback to close price
                 else:
                     df[col] = df[col].fillna(0.0)  # default safe fallback
+
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.ffill().bfill()
 
         df = df.sort_values(by=["timestamp", "tic"]).reset_index(drop=True)
 
@@ -639,6 +639,11 @@ class YahooFinanceProcessor:
                     [tech_array, df[df.tic == tic][tech_indicator_list].values]
                 )
         #        print("Successfully transformed into array")
+
+        price_array = np.nan_to_num(price_array)
+        tech_array = np.nan_to_num(tech_array)
+        turbulence_array = np.nan_to_num(turbulence_array)
+
         return price_array, tech_array, turbulence_array
 
     def get_trading_days(self, start: str, end: str) -> list[str]:
@@ -699,7 +704,7 @@ class YahooFinanceProcessor:
         new_df = pd.DataFrame()
         for tic in ticker_list:
             tmp_df = pd.DataFrame(
-                columns=["open", "high", "low", "close", "volume"], index=times
+                columns=["open", "high", "low", "close", "volume"], index=times, dtype=float
             )
             tic_df = df[df.tic == tic]
             for i in range(tic_df.shape[0]):

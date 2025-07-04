@@ -144,7 +144,7 @@ def main() -> int:
 
 
 # Users can input the following command in terminal
-# python main.py --mode=train
+# python -m finrl.main --mode=train
 # python main.py --mode=test
 # python main.py --mode=trade
 if __name__ == "__main__":
