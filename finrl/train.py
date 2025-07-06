@@ -158,17 +158,3 @@ if __name__ == "__main__":
     #     agent_params=SAC_PARAMS,
     #     total_timesteps=1e4,
     # )
-# python -m finrl.main --mode=train
-# (magistrat) krucz@krucz-B650-EAGLE-AX:~/Desktop/magistrat/Magistrat$ python -c "import yfinance as yf; print(yf.__version__); print(yf.download('AAPL', start='2020-01-01', end='2020-04-20', repair=True).head())"
-# 0.2.63
-# <string>:1: FutureWarning: YF.download() has changed argument auto_adjust default to True
-# [*********************100%***********************]  1 of 1 completed
-# Price           Close       High        Low       Open Repaired?     Volume
-# Ticker           AAPL       AAPL       AAPL       AAPL      AAPL       AAPL
-# Date
-# 2020-01-02  72.620842  72.681289  71.373218  71.627092     False  135480400
-# 2020-01-03  71.914818  72.676447  71.689957  71.847118     False  146322800
-# 2020-01-06  72.487869  72.526556  70.783271  71.034732     False  118387200
-# 2020-01-07  72.146927  72.753808  71.926900  72.497514     False  108872000
-# 2020-01-08  73.307510  73.609745  71.849533  71.849533     False  132079200
-# (magistrat) krucz@krucz-B650-EAGLE-AX:~/Desktop/magistrat/Magistrat$

@@ -8,7 +8,7 @@ RESULTS_DIR = "results"
 
 # date format: '%Y-%m-%d'
 TRAIN_START_DATE = "2014-01-06"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
-TRAIN_END_DATE = "2020-01-30"
+TRAIN_END_DATE = "2019-01-31"
 
 TEST_START_DATE = "2020-08-01"
 TEST_END_DATE = "2021-10-01"
@@ -33,10 +33,10 @@ INDICATORS = [
 # Model Parameters
 A2C_PARAMS = {"n_steps": 5, "ent_coef": 0.01, "learning_rate": 0.0007}
 PPO_PARAMS = {
-    "n_steps": 8192,
-    "ent_coef": 0.005,
-    "learning_rate": 3e-4,
-    "batch_size": 512,
+    "n_steps": 2048,
+    "ent_coef": 0.01,
+    "learning_rate": 0.00025,
+    "batch_size": 64,
 }
 DDPG_PARAMS = {"batch_size": 128, "buffer_size": 50000, "learning_rate": 0.001}
 TD3_PARAMS = {"batch_size": 100, "buffer_size": 1000000, "learning_rate": 0.001}

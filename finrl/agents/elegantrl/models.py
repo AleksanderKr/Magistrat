@@ -137,7 +137,7 @@ class DRLAgent:
             net_dim, env.state_dim, env.action_dim, gpu_id=gpu_id, args=args
         ).act
         parameters_dict = {}
-        act = torch.load(actor_path)
+        act = torch.load(actor_path, weights_only=False)
         for name, param in act.named_parameters():
             parameters_dict[name] = torch.tensor(param.detach().cpu().numpy())
 

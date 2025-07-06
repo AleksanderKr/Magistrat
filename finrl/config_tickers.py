@@ -33,15 +33,15 @@ DOW_30_TICKER = [
     "MSFT",
     "NKE",
     "PG",
+    "SHW",
     "TRV",
     "UNH",
     "CRM",
+    "NVDA",
     "VZ",
     "V",
-    "WBA",
     "WMT",
     "DIS",
-    "DOW",
 ]
 
 # Nasdaq 100 constituents at 2019/01
