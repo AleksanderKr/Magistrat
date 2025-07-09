@@ -149,4 +149,4 @@ alpaca_processor_test.py
 /finrl/config_private.py
 .history/
 
-test_ppo
+test_*
