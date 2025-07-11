@@ -34,10 +34,14 @@ def test(
         data = dp.add_vix(data)
     price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
 
-    env_config = {
+    env_args = {
         "price_array": price_array,
         "tech_array": tech_array,
         "turbulence_array": turbulence_array,
+    }
+
+    env_config = {
+        **env_args,
         "if_train": False,
     }
     env_instance = env(config=env_config)
@@ -55,6 +59,7 @@ def test(
             cwd=cwd,
             net_dimension=net_dimension,
             environment=env_instance,
+            env_args=env_args
         )
         return episode_total_assets
     elif drl_lib == "rllib":

@@ -7,13 +7,13 @@ TENSORBOARD_LOG_DIR = "tensorboard_log"
 RESULTS_DIR = "results"
 
 # date format: '%Y-%m-%d'
-TRAIN_START_DATE = "2017-01-06"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
-TRAIN_END_DATE = "2017-01-31"
+TRAIN_START_DATE = "2010-01-06"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
+TRAIN_END_DATE = "2018-01-31"
 
-TEST_START_DATE = "2020-08-01"
-TEST_END_DATE = "2021-10-01"
+TEST_START_DATE = "2018-02-01"
+TEST_END_DATE = "2021-01-31"
 
-TRADE_START_DATE = "2021-11-01"
+TRADE_START_DATE = "2021-02-01"
 TRADE_END_DATE = "2021-12-01"
 
 # stockstats technical indicator column names

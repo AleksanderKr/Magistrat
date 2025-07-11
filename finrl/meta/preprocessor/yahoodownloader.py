@@ -54,6 +54,7 @@ class YahooDownloader:
                 end=self.end_date,
                 proxy=proxy,
                 auto_adjust=auto_adjust,
+                repair=True,
             )
             if temp_df.columns.nlevels != 1:
                 temp_df.columns = temp_df.columns.droplevel(1)
@@ -83,7 +84,6 @@ class YahooDownloader:
                 inplace=True,
             )
 
-
             if not auto_adjust:
                 data_df = self._adjust_prices(data_df)
         except NotImplementedError:
@@ -104,17 +104,14 @@ class YahooDownloader:
 
     def _adjust_prices(self, data_df: pd.DataFrame) -> pd.DataFrame:
         # use adjusted close price instead of close price
-
         data_df["adj"] = data_df["adjcp"] / data_df["close"]
-
         for col in ["open", "high", "low", "close"]:
             data_df[col] *= data_df["adj"]
 
         # drop the adjusted close price column
-
         return data_df.drop(["adjcp", "adj"], axis=1)
 
-def select_equal_rows_stock(self, df):
+    def select_equal_rows_stock(self, df):
         df_check = df.tic.value_counts()
         df_check = pd.DataFrame(df_check).reset_index()
         df_check.columns = ["tic", "counts"]

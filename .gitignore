@@ -27,8 +27,6 @@ sdist/
 var/
 wheels/
 datasets/
-test_ppo/
-trained_models/
 pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
@@ -150,3 +148,5 @@ papertrading_test.py
 alpaca_processor_test.py
 /finrl/config_private.py
 .history/
+
+test_*

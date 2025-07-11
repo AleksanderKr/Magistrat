@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 import os
 from argparse import ArgumentParser
 from typing import List
@@ -18,8 +17,11 @@ from finrl.config import TRADE_START_DATE
 from finrl.config import TRAIN_END_DATE
 from finrl.config import TRAIN_START_DATE
 from finrl.config import TRAINED_MODEL_DIR
-from finrl.config_tickers import DOW_30_TICKER, SINGLE_TICKER
+from finrl.config_tickers import DOW_30_TICKER, SINGLE_TICKER, DOW_5_TEST
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
+from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
+import warnings, pandas as pd
+warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
 
 # construct environment
 
@@ -61,10 +63,7 @@ def main() -> int:
         from finrl import train
 
         env = StockTradingEnv
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        model_name = "ppo"
-        cwd = os.path.join(TRAINED_MODEL_DIR, f"{model_name}_{timestamp}")
-        os.makedirs(cwd, exist_ok=True)
+
         # demo for elegantrl
         kwargs = (
             {}
@@ -72,14 +71,14 @@ def main() -> int:
         train(
             start_date=TRAIN_START_DATE,
             end_date=TRAIN_END_DATE,
-            ticker_list=SINGLE_TICKER,
+            ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
             time_interval="1D",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name=model_name,
-            cwd=cwd,
+            model_name="td3",
+            cwd="./test_td3",
             erl_params=ERL_PARAMS,
             break_step=1e5,
             kwargs=kwargs,
@@ -102,8 +101,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ppo",
-            cwd="./test_ppo",
+            model_name="td3",
+            cwd="./test_td3",
             net_dimension=512,
             kwargs=kwargs,
         )
@@ -127,11 +126,12 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ppo",
+            model_name="td3",
+            cwd="./test_td3",
             API_KEY=ALPACA_API_KEY,
             API_SECRET=ALPACA_API_SECRET,
             API_BASE_URL=ALPACA_API_BASE_URL,
-            trade_mode="paper_trading",
+            trade_mode="backtesting",
             if_vix=True,
             kwargs=kwargs,
             state_dim=len(DOW_30_TICKER) * (len(INDICATORS) + 3)
@@ -146,7 +146,7 @@ def main() -> int:
 
 
 # Users can input the following command in terminal
-# python main.py --mode=train
+# python -m finrl.main --mode=train
 # python main.py --mode=test
 # python main.py --mode=trade
 if __name__ == "__main__":

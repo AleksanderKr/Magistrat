@@ -45,7 +45,7 @@ stable-baselines3[extra]
 stockstats>=0.4.0
 swig
 
-TA-lib # conda install -c conda-forge ta-lib
+#TA-lib # conda install -c conda-forge ta-lib
 
 tensorboard
 webdriver-manager
