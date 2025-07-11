@@ -64,11 +64,25 @@ def test(
             env_args=env_args
         )
         assets = np.asarray(episode_total_assets, dtype=float)
+        # BnH
+        init_cash = env_instance.initial_capital
+        first_px = price_array[0]
+        last_px = price_array[-1]
+
+        equal_cash = init_cash / len(first_px)
+        shares = equal_cash / first_px
+        bnh_final = (shares * last_px).sum()
+
+        bnh_return = bnh_final / init_cash
+        alpha_pct = assets[-1] / (assets[0] * bnh_return) - 1
+        # BnH
+
         daily_ret = np.diff(assets) / assets[:-1]
         sharpe = np.sqrt(252) * daily_ret.mean() / daily_ret.std() if daily_ret.std() != 0 else np.nan
         cagr = (assets[-1] / assets[0]) ** (252 / len(daily_ret)) - 1
 
         print(f"episode return: {assets[-1] / assets[0] - 1:.2%}   |   Sharpe: {sharpe:.3f}")
+        print(f"Buy&Hold return: {bnh_return - 1:.2%}            |   Agent vs BnH: {alpha_pct:.2%}")
         print(f"CAGR: {cagr:.2%}")
 
         return episode_total_assets, sharpe, cagr

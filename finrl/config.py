@@ -49,14 +49,21 @@ SAC_PARAMS = {
 }
 ERL_PARAMS = {
     "learning_rate": 3e-5,
-    "batch_size": 2048,
-    "gamma": 0.985,
+    "batch_size": 8192,
+    "gamma": 0.99,
     "seed": 312,
-    "net_dimension": 512,
-    "target_step": 5000,
-    "eval_gap": 30,
-    "eval_times": 64,  # bug fix:KeyError: 'eval_times' line 68, in get_model model.eval_times = model_kwargs["eval_times"]
+    "net_dimension": 1024,
+    "net_dims": [1024, 1024],
+    "target_step": 32768,           # dopasowane do 16 workerów i horizon_len
+    "horizon_len": 2048,
+    "repeat_times": 2.0,
+    "buffer_size": int(2e6),
+    "buffer_init_size": 32768,
+    "if_use_per": False,
+    "eval_gap": 64,
+    "eval_times": 32,
 }
+
 RLlib_PARAMS = {"lr": 5e-5, "train_batch_size": 500, "gamma": 0.99}
 SHARPE_PARAMS = {
     "alpha": 1.0,      # weight of log-return

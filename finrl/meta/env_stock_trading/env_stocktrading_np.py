@@ -158,10 +158,12 @@ class StockTradingEnv(gym.Env):
         self.r_bar = (1 - g) * self.r_bar + g * log_ret
         self.s2_bar = (1 - g) * self.s2_bar + g * log_ret ** 2
         var = max(self.s2_bar - self.r_bar ** 2, 1e-8)
-        dsr = (log_ret - self.r_bar) / np.sqrt(var)  # Differential Sharpe
-
+        std = np.sqrt(var)
+        dsr = (log_ret - self.r_bar) / std  # Differential Sharpe
+        rar = log_ret / std
         # final reward
-        reward = self.alpha * log_ret + self.beta * dsr
+        # old reward = α·log_ret + β·dsr	 to new: reward = α·(log_ret / σ) + β·((log_ret − μ)/σ)
+        reward = self.alpha * rar + self.beta * dsr
         self.total_asset = total_asset
 
         self.gamma_reward = self.gamma_reward * self.gamma + reward
