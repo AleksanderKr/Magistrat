@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from finrl.config import INDICATORS
+import numpy as np
+from finrl.config import INDICATORS, SHARPE_PARAMS
 from finrl.config import RLlib_PARAMS
 from finrl.config import TEST_END_DATE
 from finrl.config import TEST_START_DATE
@@ -43,6 +44,7 @@ def test(
     env_config = {
         **env_args,
         "if_train": False,
+        **SHARPE_PARAMS
     }
     env_instance = env(config=env_config)
 
@@ -61,7 +63,15 @@ def test(
             environment=env_instance,
             env_args=env_args
         )
-        return episode_total_assets
+        assets = np.asarray(episode_total_assets, dtype=float)
+        daily_ret = np.diff(assets) / assets[:-1]
+        sharpe = np.sqrt(252) * daily_ret.mean() / daily_ret.std() if daily_ret.std() != 0 else np.nan
+        cagr = (assets[-1] / assets[0]) ** (252 / len(daily_ret)) - 1
+
+        print(f"episode return: {assets[-1] / assets[0] - 1:.2%}   |   Sharpe: {sharpe:.3f}")
+        print(f"CAGR: {cagr:.2%}")
+
+        return episode_total_assets, sharpe, cagr
     elif drl_lib == "rllib":
         from finrl.agents.rllib.models import DRLAgent as DRLAgent_rllib
 

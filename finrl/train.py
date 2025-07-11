@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from finrl.config import ERL_PARAMS
+from finrl.config import ERL_PARAMS, SHARPE_PARAMS
 from finrl.config import INDICATORS
 from finrl.config import RLlib_PARAMS
 from finrl.config import SAC_PARAMS
@@ -39,6 +39,7 @@ def train(
         "tech_array": tech_array,
         "turbulence_array": turbulence_array,
         "if_train": True,
+        **SHARPE_PARAMS
     }
     env_instance = env(config=env_config)
 

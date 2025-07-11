@@ -19,6 +19,9 @@ class StockTradingEnv(gym.Env):
         sell_cost_pct=1e-3,
         reward_scaling=2**-11,
         initial_stocks=None,
+        alpha=1.0,
+        beta=0.3,
+        sr_gamma=0.01,
     ):
         price_ary = config["price_array"]
         tech_ary = config["tech_array"]
@@ -27,6 +30,11 @@ class StockTradingEnv(gym.Env):
         self.price_ary = price_ary.astype(np.float32)
         self.tech_ary = tech_ary.astype(np.float32)
         self.turbulence_ary = turbulence_ary
+        self.alpha = config.get("alpha", alpha)
+        self.beta = config.get("beta", beta)
+        self.sr_gamma = config.get("sr_gamma", sr_gamma)
+        self.r_bar = 0.0
+        self.s2_bar = 0.0
 
         self.tech_ary = self.tech_ary * 2**-7
         self.turbulence_bool = (turbulence_ary > turbulence_thresh).astype(np.float32)
@@ -103,6 +111,8 @@ class StockTradingEnv(gym.Env):
         self.total_asset = self.amount + (self.stocks * price).sum()
         self.initial_total_asset = self.total_asset
         self.gamma_reward = 0.0
+        self.r_bar = 0.0  # reset EMA
+        self.s2_bar = 0.0
         return self.get_state(price), {}  # state
 
     def step(self, actions):
@@ -140,7 +150,18 @@ class StockTradingEnv(gym.Env):
 
         state = self.get_state(price)
         total_asset = self.amount + (self.stocks * price).sum()
-        reward = (total_asset - self.total_asset) * self.reward_scaling
+        # log-return
+        log_ret = np.log(total_asset / (self.total_asset + 1e-8))
+
+        # update DSR
+        g = self.sr_gamma
+        self.r_bar = (1 - g) * self.r_bar + g * log_ret
+        self.s2_bar = (1 - g) * self.s2_bar + g * log_ret ** 2
+        var = max(self.s2_bar - self.r_bar ** 2, 1e-8)
+        dsr = (log_ret - self.r_bar) / np.sqrt(var)  # Differential Sharpe
+
+        # final reward
+        reward = self.alpha * log_ret + self.beta * dsr
         self.total_asset = total_asset
 
         self.gamma_reward = self.gamma_reward * self.gamma + reward

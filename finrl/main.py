@@ -17,6 +17,7 @@ from finrl.config import TRADE_START_DATE
 from finrl.config import TRAIN_END_DATE
 from finrl.config import TRAIN_START_DATE
 from finrl.config import TRAINED_MODEL_DIR
+from finrl.config import SHARPE_PARAMS
 from finrl.config_tickers import DOW_30_TICKER, SINGLE_TICKER, DOW_5_TEST
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
