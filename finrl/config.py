@@ -7,11 +7,11 @@ TENSORBOARD_LOG_DIR = "tensorboard_log"
 RESULTS_DIR = "results"
 
 # date format: '%Y-%m-%d'
-TRAIN_START_DATE = "2010-01-06"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
-TRAIN_END_DATE = "2018-01-31"
+TRAIN_START_DATE = "2009-01-01"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
+TRAIN_END_DATE = "2020-06-30"
 
-TEST_START_DATE = "2018-02-01"
-TEST_END_DATE = "2021-01-31"
+TEST_START_DATE = "2020-07-01"
+TEST_END_DATE = "2022-06-30"
 
 TRADE_START_DATE = "2021-02-01"
 TRADE_END_DATE = "2021-12-01"
@@ -48,20 +48,20 @@ SAC_PARAMS = {
     "ent_coef": "auto_0.1",
 }
 ERL_PARAMS = {
-    "learning_rate": 3e-5,
-    "batch_size": 8192,
+    "learning_rate": 3e-4,
+    "batch_size": 2048,
     "gamma": 0.99,
     "seed": 312,
-    "net_dimension": 1024,
+    "net_dimension": 256,
     "net_dims": [1024, 1024],
-    "target_step": 32768,           # dopasowane do 16 workerów i horizon_len
-    "horizon_len": 2048,
+    "target_step": 8192,
+    "horizon_len": 4096,
     "repeat_times": 2.0,
-    "buffer_size": int(2e6),
-    "buffer_init_size": 32768,
+    "buffer_size": int(1e6),
+    "buffer_init_size": 16384,
     "if_use_per": False,
-    "eval_gap": 64,
-    "eval_times": 32,
+    "eval_gap": 256,
+    "eval_times": 16,
 }
 
 RLlib_PARAMS = {"lr": 5e-5, "train_batch_size": 500, "gamma": 0.99}

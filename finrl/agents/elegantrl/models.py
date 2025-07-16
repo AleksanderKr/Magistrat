@@ -5,6 +5,7 @@ DRL models from ElegantRL: https://github.com/AI4Finance-Foundation/ElegantRL
 from __future__ import annotations
 
 import torch
+from elegantrl.agents.MAgentMADDPG import AgentMADDPG
 from elegantrl.agents import *
 from elegantrl.train.config import Config
 from elegantrl.train.run import train_agent
@@ -15,6 +16,8 @@ MODELS = {
     "sac": AgentSAC,
     "ppo": AgentPPO,
     "a2c": AgentA2C,
+    "maddpg" : AgentMADDPG,
+    "dqn": AgentDQN,
 }
 OFF_POLICY_MODELS = ["ddpg", "td3", "sac"]
 ON_POLICY_MODELS = ["ppo"]

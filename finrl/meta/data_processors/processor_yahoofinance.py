@@ -683,10 +683,10 @@ class YahooFinanceProcessor:
 
         data_df.columns = [  # convert to Alpaca column names lowercase
             "timestamp",
-            "open",
+            "close",
             "high",
             "low",
-            "close",
+            "open",
             "volume",
             "tic",
         ]
