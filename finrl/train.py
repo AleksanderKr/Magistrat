@@ -24,6 +24,7 @@ def train(
     env,
     model_name,
     if_vix=True,
+    env_extra=None,
     **kwargs,
 ):
     # download data
@@ -39,7 +40,8 @@ def train(
         "tech_array": tech_array,
         "turbulence_array": turbulence_array,
         "if_train": True,
-        **SHARPE_PARAMS
+        **SHARPE_PARAMS,
+        **(env_extra or {})
     }
     env_instance = env(config=env_config)
 
@@ -123,39 +125,3 @@ if __name__ == "__main__":
         break_step=1e5,
         kwargs=kwargs,
     )
-
-    ## if users want to use rllib, or stable-baselines3, users can remove the following comments
-
-    # # demo for rllib
-    # import ray
-    # ray.shutdown()  # always shutdown previous session if any
-    # train(
-    #     start_date=TRAIN_START_DATE,
-    #     end_date=TRAIN_END_DATE,
-    #     ticker_list=DOW_30_TICKER,
-    #     data_source="yahoofinance",
-    #     time_interval="1D",
-    #     technical_indicator_list=INDICATORS,
-    #     drl_lib="rllib",
-    #     env=env,
-    #     model_name="ppo",
-    #     cwd="./test_ppo",
-    #     rllib_params=RLlib_PARAMS,
-    #     total_episodes=30,
-    # )
-    #
-    # # demo for stable-baselines3
-    # train(
-    #     start_date=TRAIN_START_DATE,
-    #     end_date=TRAIN_END_DATE,
-    #     ticker_list=DOW_30_TICKER,
-    #     data_source="yahoofinance",
-    #     time_interval="1D",
-    #     technical_indicator_list=INDICATORS,
-    #     drl_lib="stable_baselines3",
-    #     env=env,
-    #     model_name="sac",
-    #     cwd="./test_sac",
-    #     agent_params=SAC_PARAMS,
-    #     total_timesteps=1e4,
-    # )

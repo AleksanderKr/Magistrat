@@ -188,35 +188,3 @@ if __name__ == "__main__":
         kwargs=kwargs,
     )
 
-    ## if users want to use rllib, or stable-baselines3, users can remove the following comments
-
-    # # demo for rllib
-    # import ray
-    # ray.shutdown()  # always shutdown previous session if any
-    # account_value_rllib = test(
-    #     start_date=TEST_START_DATE,
-    #     end_date=TEST_END_DATE,
-    #     ticker_list=DOW_30_TICKER,
-    #     data_source="yahoofinance",
-    #     time_interval="1D",
-    #     technical_indicator_list=INDICATORS,
-    #     drl_lib="rllib",
-    #     env=env,
-    #     model_name="ppo",
-    #     cwd="./test_ppo/checkpoint_000030/checkpoint-30",
-    #     rllib_params=RLlib_PARAMS,
-    # )
-    #
-    # # demo for stable baselines3
-    # account_value_sb3 = test(
-    #     start_date=TEST_START_DATE,
-    #     end_date=TEST_END_DATE,
-    #     ticker_list=DOW_30_TICKER,
-    #     data_source="yahoofinance",
-    #     time_interval="1D",
-    #     technical_indicator_list=INDICATORS,
-    #     drl_lib="stable_baselines3",
-    #     env=env,
-    #     model_name="sac",
-    #     cwd="./test_sac.zip",
-    # )

@@ -1,0 +1,8 @@
+2025-07-16 13:42:32  trial=2    Sharpe=0.403  Ret=17.38%  CAGR=8.36%  params={"learning_rate": 0.00013158577082643839, "batch_size": 2048, "gamma": 0.9765791370948683, "net_dimension": 1024, "net_dims": [1024, 1024], "target_step": 8192, "horizon_len": 2048, "repeat_times": 2.0, "buffer_size": 2000000, "buffer_init_size": 32768, "eval_gap": 64, "eval_times": 16}
+2025-07-16 13:45:41  trial=3    Sharpe=0.579  Ret=19.99%  CAGR=9.56%  params={"learning_rate": 4.8945735628224344e-05, "batch_size": 8192, "gamma": 0.9536526946786621, "net_dimension": 512, "net_dims": [512, 512], "target_step": 8192, "horizon_len": 2048, "repeat_times": 2.0, "buffer_size": 2000000, "buffer_init_size": 32768, "eval_gap": 64, "eval_times": 16}
+2025-07-16 14:26:43  trial=0    Ret=23.74%  Sharpe=0.686  CAGR=11.26%  params={"learning_rate": 5.752422008209519e-05, "batch_size": 4096, "gamma": 0.9758061544295377, "net_dimension": 256, "net_dims": [256, 256], "target_step": 8192, "horizon_len": 2048, "repeat_times": 2.0, "buffer_size": 2000000, "buffer_init_size": 32768, "eval_gap": 64, "eval_times": 16}
+2025-07-16 14:29:52  trial=1    Ret=23.83%  Sharpe=0.750  CAGR=11.30%  params={"learning_rate": 1.7736970768532605e-05, "batch_size": 4096, "gamma": 0.98963952714603, "net_dimension": 256, "net_dims": [1024, 1024], "target_step": 8192, "horizon_len": 2048, "repeat_times": 2.0, "buffer_size": 2000000, "buffer_init_size": 32768, "eval_gap": 64, "eval_times": 16}
+2025-07-17 18:34:25  id=trial_000  Ret=26.05%  Sharpe=0.691  w=-
+2025-07-17 18:37:51  id=trial_001  Ret=25.18%  Sharpe=0.637  w=-
+2025-07-17 18:49:58  id=trial_002  Ret=28.38%  Sharpe=0.796  w=-
+2025-07-17 18:53:22  id=trial_003  Ret=38.78%  Sharpe=1.130  w=-
