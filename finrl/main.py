@@ -4,7 +4,7 @@ import os
 from argparse import ArgumentParser
 from typing import List
 
-from finrl.config import ALPACA_API_BASE_URL
+from finrl.config import ALPACA_API_BASE_URL, ERL_TMP_PARAMS
 from finrl.config import DATA_SAVE_DIR
 from finrl.config import ERL_PARAMS
 from finrl.config import INDICATORS
@@ -78,10 +78,10 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="a2c",
-            cwd="./test_a2c",
-            erl_params=ERL_PARAMS,
-            break_step=1e5,
+            model_name="sac",
+            cwd="./test_sac",
+            erl_params=ERL_TMP_PARAMS,
+            break_step=3e5,
             kwargs=kwargs,
         )
     elif options.mode == "test":
@@ -102,8 +102,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="a2c",
-            cwd="./test_a2c",
+            model_name="sac",
+            cwd="./test_sac",
             net_dimension=512,
             kwargs=kwargs,
         )
@@ -127,8 +127,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="a2c",
-            cwd="./test_a2c",
+            model_name="sac",
+            cwd="./test_sac",
             API_KEY=ALPACA_API_KEY,
             API_SECRET=ALPACA_API_SECRET,
             API_BASE_URL=ALPACA_API_BASE_URL,

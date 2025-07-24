@@ -64,6 +64,23 @@ ERL_PARAMS = {
     "eval_times": 16,
 }
 
+ERL_TMP_PARAMS = {
+    "learning_rate": 4.21016461159303e-05,
+    "batch_size": 4096,
+    "gamma": 0.9989652812396075,
+    "seed": 312,
+    "net_dimension": 1024,
+    "net_dims": [256, 256],
+    "target_step": 8192,
+    "horizon_len": 4096,
+    "repeat_times": 2.0,
+    "buffer_size": int(1e6),
+    "buffer_init_size": 16384,
+    "if_use_per": False,
+    "eval_gap": 256,
+    "eval_times": 16,
+}
+
 RLlib_PARAMS = {"lr": 5e-5, "train_batch_size": 500, "gamma": 0.99}
 SHARPE_PARAMS = {
     "alpha": 1.0,      # weight of log-return

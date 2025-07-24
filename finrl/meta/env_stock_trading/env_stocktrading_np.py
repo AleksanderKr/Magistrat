@@ -19,8 +19,8 @@ class StockTradingEnv(gym.Env):
         sell_cost_pct=1e-3,
         reward_scaling=2**-11,
         initial_stocks=None,
-        alpha=1.0,
-        beta=0.3,
+        alpha=0.75,
+        beta=0.036,
         sr_gamma=0.01,
     ):
         price_ary = config["price_array"]

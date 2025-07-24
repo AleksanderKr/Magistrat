@@ -19,7 +19,7 @@ from finrl.config import (
     TEST_START_DATE,  TEST_END_DATE,
 )
 
-LOG_FILE = "optuna_log.csv"
+LOG_FILE = "optuna_log_td3.csv"
 TOP_K    = 5                                    # keep only top-K actors
 best_runs: list[tuple[float, float, str]] = []  # (return, sharpe, path)
 
