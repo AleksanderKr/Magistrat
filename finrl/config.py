@@ -7,11 +7,14 @@ TENSORBOARD_LOG_DIR = "tensorboard_log"
 RESULTS_DIR = "results"
 
 # date format: '%Y-%m-%d'
-TRAIN_START_DATE = "2009-01-01"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
-TRAIN_END_DATE = "2020-06-30"
+TRAIN_START_DATE = "2010-01-01"  # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
+TRAIN_END_DATE = "2018-01-01"
 
-TEST_START_DATE = "2020-07-01"
-TEST_END_DATE = "2022-06-30"
+VALIDATION_START_DATE = "2018-01-01"
+VALIDATION_END_DATE = "2019-01-01"
+
+TEST_START_DATE = "2019-01-01"
+TEST_END_DATE = "2020-06-30"
 
 TRADE_START_DATE = "2021-02-01"
 TRADE_END_DATE = "2021-12-01"
