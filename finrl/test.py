@@ -140,7 +140,7 @@ def test(
             start_date=TEST_START_DATE
         )
 
-        return episode_total_assets, (cagr / ann_vol if ann_vol else np.nan), cagr
+        return episode_total_assets, (cagr / ann_vol if ann_vol else np.nan), cagr, alpha_pct
 
     elif drl_lib == "rllib":
         from finrl.agents.rllib.models import DRLAgent as DRLAgent_rllib

@@ -23,6 +23,7 @@ import shutil
 from typing import List, Tuple
 
 import optuna
+from optuna.samplers import NSGAIISampler
 
 from finrl.train import train
 from finrl.test import test
@@ -37,7 +38,7 @@ from finrl.config import (
 )
 
 # ───────────────────────────── logging ──────────────────────────────
-LOG_FILE = "optuna_log_second_sac.csv"
+LOG_FILE = "optuna_log_second_td3.csv"
 TOP_K = 5                           # keep only top‑K checkpoints
 best_runs: List[Tuple[float, float, str]] = []  # (return, sharpe, path)
 
@@ -52,6 +53,7 @@ def _init_log(series_tag: str) -> None:
         "model",
         "return",
         "sharpe",
+        "agent_vs_bnh",
         "params_json",
     ]
     new_file = not os.path.isfile(LOG_FILE)
@@ -73,6 +75,7 @@ def _append_log(row: dict) -> None:
         "model",
         "return",
         "sharpe",
+        "agent_vs_bnh",
         "params_json",
     ]
     with open(LOG_FILE, "a", newline="") as f:
@@ -143,7 +146,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
     )
 
     # ─── evaluate ───
-    assets, sharpe, _ = test(
+    assets, sharpe, _, agent_vs_bnh = test(
         start_date=VALIDATION_START_DATE,
         end_date=VALIDATION_END_DATE,
         ticker_list=DOW_30_TICKER,
@@ -168,6 +171,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
             "model": model_name,
             "return": f"{ret:.4f}",
             "sharpe": f"{sharpe:.4f}",
+            "agent_vs_bnh": f"{agent_vs_bnh:.4f}",
             "params_json": json.dumps({"erl": erl_params}),
         }
     )
@@ -212,8 +216,8 @@ if __name__ == "__main__":
     _init_log(series_tag)
 
     if args.mode == "single":
-        #study_name = f"finrl_single_{args.model}"
-        study_name = f"finrl_Second_single_sac_SINGLE_sac_20trials_250729_082359"
+        study_name = f"finrl_single_second_{args.model}"
+        #study_name = f"finrl_Second_single_sac_SINGLE_sac_20trials_250729_082359"
         study = optuna.create_study(
             study_name=study_name,
             storage="sqlite:///optuna_finrl.db",
@@ -221,11 +225,12 @@ if __name__ == "__main__":
             load_if_exists=True,
         )
     else:
-        study_name = f"finrl_pareto_{args.model}"
+        study_name = f"finrl_pareto_second_{args.model}"
         study = optuna.create_study(
             study_name=study_name,
             storage="sqlite:///optuna_finrl.db",
             directions=["maximize", "maximize"],
+            sampler=NSGAIISampler(),
             load_if_exists=True,
         )
 
