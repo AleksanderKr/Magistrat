@@ -38,7 +38,7 @@ from finrl.config import (
 )
 
 # ───────────────────────────── logging ──────────────────────────────
-LOG_FILE = "optuna_log_second_pareto_ppo.csv"
+LOG_FILE = "optuna_log_second_pareto_ddpg.csv"
 TOP_K = 5                           # keep only top‑K checkpoints
 best_runs: List[Tuple[float, float, str]] = []  # (return, sharpe, path)
 

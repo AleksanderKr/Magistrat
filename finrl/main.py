@@ -63,7 +63,7 @@ def main() -> int:
     if options.mode == "train":
         from finrl import train
 
-        env = StockTradingEnv
+        env = StockPortfolioEnv
 
         # demo for elegantrl
         kwargs = (
