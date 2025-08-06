@@ -63,7 +63,7 @@ def main() -> int:
     if options.mode == "train":
         from finrl import train
 
-        env = StockPortfolioEnv
+        env = StockTradingEnv
 
         # demo for elegantrl
         kwargs = (
@@ -78,10 +78,10 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="sac",
-            cwd="./test_sac",
+            model_name="ppo",
+            cwd="./test_ppo",
             erl_params=ERL_TMP_PARAMS,
-            break_step=3e5,
+            break_step=1e5,
             kwargs=kwargs,
         )
     elif options.mode == "test":
@@ -102,8 +102,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="sac",
-            cwd="./test_sac",
+            model_name="ppo",
+            cwd="./test_ppo",
             net_dimension=512,
             kwargs=kwargs,
         )
@@ -127,8 +127,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="sac",
-            cwd="./test_sac",
+            model_name="ppo",
+            cwd="./test_ppo",
             API_KEY=ALPACA_API_KEY,
             API_SECRET=ALPACA_API_SECRET,
             API_BASE_URL=ALPACA_API_BASE_URL,

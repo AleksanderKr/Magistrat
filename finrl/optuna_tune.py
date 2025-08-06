@@ -146,7 +146,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
     )
 
     # ─── evaluate ───
-    assets, sharpe, _, agent_vs_bnh = test(
+    assets, sharpe, cagr, agent_vs_bnh = test(
         start_date=VALIDATION_START_DATE,
         end_date=VALIDATION_END_DATE,
         ticker_list=DOW_30_TICKER,

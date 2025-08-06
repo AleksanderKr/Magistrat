@@ -78,34 +78,22 @@ class YahooFinanceProcessor:
             tic_col: str = "tic",
             calendar: Optional[pd.DatetimeIndex] = None
     ) -> pd.DataFrame:
-        """
-        Uzupełnia brakujące kombinacje (data, ticker) bez dodawania dni,
-        w które żadna spółka nie była notowana.
-
-        Jeśli podasz argument `calendar`, zostanie użyty zamiast unii dat.
-        """
-
         df = df.copy()
 
-        # 1. porządkuj oś czasu
         df[date_col] = pd.to_datetime(df[date_col], utc=True).dt.tz_localize(None)
 
-        # 2. pełny indeks dat: unia istniejących lub podany kalendarz
         if calendar is None:
             full_index = pd.DatetimeIndex(sorted(df[date_col].unique()))
         else:
             full_index = pd.DatetimeIndex(pd.to_datetime(calendar))
 
-        # 3. macierz data × ticker
         mat = (df.pivot(index=date_col,
                         columns=tic_col,
                         values=price_col)
                .reindex(full_index))
 
-        # 4. forward-fill, a brak wiodący – backward-fill
         mat = mat.ffill().bfill()
 
-        # 5. z powrotem do long-format
         padded = (mat
                   .reset_index(names=date_col)
                   .melt(id_vars=date_col,
@@ -114,8 +102,7 @@ class YahooFinanceProcessor:
                   .sort_values([date_col, tic_col])
                   .reset_index(drop=True))
 
-        # 6. scal pozostałe kolumny; tam gdzie powstały nowe wiersze,
-        #    wolumen = 0 (albo inna neutralna wartość)
+
         other_cols = [c for c in df.columns
                       if c not in (date_col, tic_col, price_col)]
 
@@ -127,7 +114,7 @@ class YahooFinanceProcessor:
         for col in other_cols:
             if out[col].dtype.kind in "fi":  # liczby
                 out[col] = out[col].fillna(0.0)
-            else:  # kategorie / obiekty
+            else:
                 out[col] = out[col].fillna(method="ffill").fillna(method="bfill")
 
         return out
