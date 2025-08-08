@@ -8,14 +8,26 @@ RESULTS_DIR = "results"
 
 # date format: '%Y-%m-%d'
 # bug fix: set Monday right, start date set 2014-01-01 ValueError: all the input array dimensions for the concatenation axis must match exactly, but along dimension 0, the array at index 0 has size 1658 and the array at index 1 has size 1657
+# stable
 TRAIN_START_DATE = "2010-01-01"
-TRAIN_END_DATE = "2020-01-01"
+TRAIN_END_DATE = "2018-01-01"
 
-VALIDATION_START_DATE = "2021-01-01"
-VALIDATION_END_DATE = "2022-01-01"
+VALIDATION_START_DATE = "2018-01-01"
+VALIDATION_END_DATE = "2019-01-01"
 
-TEST_START_DATE = "2022-01-01"
-TEST_END_DATE = "2023-01-01"
+TEST_START_DATE = "2019-01-01"
+TEST_END_DATE = "2020-01-01"
+# stable
+# merry crisis
+CRISIS_TRAIN_START_DATE = "2013-01-01"
+CRISIS_TRAIN_END_DATE = "2021-01-01"
+
+CRISIS_VALIDATION_START_DATE = "2021-01-01"
+CRISIS_VALIDATION_END_DATE = "2022-01-01"
+
+CRISIS_TEST_START_DATE = "2022-01-01"
+CRISIS_TEST_END_DATE = "2023-01-01"
+# merry crisis
 
 TRADE_START_DATE = "2021-02-01"
 TRADE_END_DATE = "2021-12-01"
