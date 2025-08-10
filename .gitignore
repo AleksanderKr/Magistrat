@@ -141,7 +141,7 @@ dmypy.json
 *events.out.tfevents.*
 #*.csv
 *.zip
-*.png
+#*.png
 finrl_test.py
 test_plugplay.py
 papertrading_test.py

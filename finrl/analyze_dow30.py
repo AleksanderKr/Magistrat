@@ -165,7 +165,7 @@ def analyze_log_returns(df: pd.DataFrame, bounds, draw=False):
     else:
         print("\nLevene variance test: skipped (insufficient data)")
     if draw:
-        kde_plot(s_lr, c_lr, "Log-return KDE (stable vs crisis)", "kde_logret.png", "Daily log return", True)
+        kde_plot(s_lr, c_lr, "Log-return (Test Set)", "test_kde_logret.png", "Daily log return", True)
 
 def analyze_volatility(df: pd.DataFrame, bounds, draw=False):
     df = df.copy()
@@ -178,7 +178,7 @@ def analyze_volatility(df: pd.DataFrame, bounds, draw=False):
     print("\n=== Rolling 30-day volatility ===")
     print(res.to_string())
     if draw:
-        kde_plot(stable["vol_30"].dropna(), crisis["vol_30"].dropna(), "30-day volatility KDE", "kde_vol30.png", "σ over 30 days", True)
+        kde_plot(stable["vol_30"].dropna(), crisis["vol_30"].dropna(), "30-day Volatility (Test Set)", "test_kde_vol30.png", "σ over 30 days", True)
 
 
 def analyze_rsi_signals(df: pd.DataFrame, bounds, draw=False):
@@ -190,7 +190,7 @@ def analyze_rsi_signals(df: pd.DataFrame, bounds, draw=False):
     print("\n=== RSI signal counts ===")
     print(out.to_string())
     if draw:
-        kde_plot(stable["rsi_30"], crisis["rsi_30"], "RSI30 KDE", "kde_rsi30.png", "RSI (0–100)", False)
+        kde_plot(stable["rsi_30"], crisis["rsi_30"], "RSI30 (Test Set)", "test_kde_rsi30.png", "RSI (0–100)", False)
 
 def analyze_bollinger_behavior(df, bounds, draw=False):
     df = df.sort_values(["tic","timestamp"])
@@ -207,9 +207,9 @@ def analyze_bollinger_behavior(df, bounds, draw=False):
     print("\n=== Bollinger breakouts ==="); print(out.to_string(index=True))
     if draw:
         bar_plot([out.loc["stable","rate_upper"], out.loc["crisis","rate_upper"]],
-                 ["stable","crisis"], "Share of upper-band breakouts", "boll_upper_rate.png", "Share of days", True)
+                 ["stable","crisis"], "Share of upper-band breakouts (Test Set)", "test_boll_upper_rate.png", "Share of days", True)
         bar_plot([out.loc["stable","rate_lower"], out.loc["crisis","rate_lower"]],
-                 ["stable","crisis"], "Share of lower-band breakouts", "boll_lower_rate.png", "Share of days", True)
+                 ["stable","crisis"], "Share of lower-band breakouts (Test Set)", "test_boll_lower_rate.png", "Share of days", True)
 
 def analyze_correlation(df, bounds, draw=False):
     df = df.copy()
@@ -224,7 +224,7 @@ def analyze_correlation(df, bounds, draw=False):
     print("\n=== Avg pair-wise return correlation ==="); print(out.to_string())
     if draw and out["avg_corr"].notna().all():
         bar_plot([out.loc["stable","avg_corr"], out.loc["crisis","avg_corr"]],
-                 ["stable","crisis"], "Average pair-wise correlation", "avg_corr_bar.png", "Correlation", False)
+                 ["stable","crisis"], "Average pair-wise correlation (Test Set)", "test_avg_corr_bar.png", "Correlation", False)
 
 
 def analyze_volume(df: pd.DataFrame, bounds, draw=False):
@@ -240,7 +240,7 @@ def analyze_volume(df: pd.DataFrame, bounds, draw=False):
     print("\n=== Volume stats ===")
     print(out.to_string())
     if draw:
-        kde_plot(np.log1p(stable["volume"]), np.log1p(crisis["volume"]), "log(Volume) KDE", "kde_volume.png", "log(1+volume)", False)
+        kde_plot(np.log1p(stable["volume"]), np.log1p(crisis["volume"]), "log(Volume) (Test Set)", "test_kde_volume.png", "log(1+volume)", False)
 
 def analyze_turbulence(df: pd.DataFrame, bounds, draw=False):
     price = df.pivot(index="timestamp", columns="tic", values="close").sort_index()
@@ -288,7 +288,7 @@ def analyze_turbulence(df: pd.DataFrame, bounds, draw=False):
     print(out.to_string())
 
     if draw and len(stable_t) > 1 and len(crisis_t) > 1:
-        kde_plot(stable_t, crisis_t, "Turbulence KDE", "kde_turb.png", "Turbulence index", False)
+        kde_plot(stable_t, crisis_t, "Turbulence (Test Set))", "test_kde_turb.png", "Turbulence index", False)
 
 def compute_bollinger_rates(df, bounds):
     df = df.sort_values(["tic","timestamp"]).copy()
