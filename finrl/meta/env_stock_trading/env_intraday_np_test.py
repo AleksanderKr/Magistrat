@@ -5,7 +5,7 @@ import numpy as np
 from numpy import random as rd
 
 
-class StockTradingEnv(gym.Env):
+class IntradayTradingTestEnv(gym.Env):
     def __init__(
         self,
         config,
@@ -17,7 +17,7 @@ class StockTradingEnv(gym.Env):
         initial_capital=1e6,
         buy_cost_pct=1e-3,
         sell_cost_pct=1e-3,
-        reward_scaling=2**-11,
+        reward_scaling=2**-9,   # scaled down for intraday rewards
         initial_stocks=None,
     ):
         price_ary = config["price_array"]
@@ -29,10 +29,8 @@ class StockTradingEnv(gym.Env):
         self.turbulence_ary = turbulence_ary
 
         self.tech_ary = self.tech_ary * 2**-7
-        self.turbulence_bool = (turbulence_ary > turbulence_thresh).astype(np.float32)
-        self.turbulence_ary = (
-            self.sigmoid_sign(turbulence_ary, turbulence_thresh) * 2**-5
-        ).astype(np.float32)
+        self.turbulence_bool = np.zeros_like(turbulence_ary, dtype=np.float32)
+        self.turbulence_ary = np.zeros_like(turbulence_ary, dtype=np.float32)
 
         stock_dim = self.price_ary.shape[1]
         self.gamma = gamma
@@ -66,6 +64,12 @@ class StockTradingEnv(gym.Env):
         self.action_dim = stock_dim
         self.max_step = self.price_ary.shape[0] - 1
         self.if_train = if_train
+
+        self.warmup_lookback = int(
+            config.get("warmup_lookback", 0))
+        self.start_day = 0
+        self.end_day = self.max_step
+
         self.if_discrete = False
         self.target_return = 10.0
         self.episode_return = 0.0
@@ -78,39 +82,36 @@ class StockTradingEnv(gym.Env):
         )
 
     def reset(
-        self,
-        *,
-        seed=None,
-        options=None,
+            self,
+            *,
+            seed=None,
+            options=None,
     ):
-        self.day = 0
+        self.start_day = int(max(0, self.warmup_lookback))
+        self.end_day = self.max_step
+        self.day = self.start_day
+
         price = self.price_ary[self.day]
 
-        if self.if_train:
-            self.stocks = (
-                self.initial_stocks + rd.randint(0, 64, size=self.initial_stocks.shape)
-            ).astype(np.float32)
-            self.stocks_cool_down = np.zeros_like(self.stocks)
-            self.amount = (
-                self.initial_capital * rd.uniform(0.95, 1.05)
-                - (self.stocks * price).sum()
-            )
-        else:
-            self.stocks = self.initial_stocks.astype(np.float32)
-            self.stocks_cool_down = np.zeros_like(self.stocks)
-            self.amount = self.initial_capital
+        self.stocks = np.zeros_like(self.initial_stocks, dtype=np.float32)
+        self.stocks_cool_down = np.zeros_like(self.stocks)
+        self.amount = float(self.initial_capital)
 
         self.total_asset = self.amount + (self.stocks * price).sum()
         self.initial_total_asset = self.total_asset
+
         self.gamma_reward = 0.0
 
-        return self.get_state(price), {}  # state
+        return self.get_state(price), {}
 
     def step(self, actions):
         actions = (actions * self.max_stock).astype(int)
 
         self.day += 1
+        if self.day > self.max_step:
+            self.day = self.max_step
         price = self.price_ary[self.day]
+
         self.stocks_cool_down += 1
 
         if self.turbulence_bool[self.day] == 0:
@@ -143,11 +144,10 @@ class StockTradingEnv(gym.Env):
         total_asset = self.amount + (self.stocks * price).sum()
         reward = (total_asset - self.total_asset) * self.reward_scaling
         self.total_asset = total_asset
+        #self.gamma_reward = self.gamma_reward * self.gamma + reward
+        done = (self.day >= self.end_day)
 
-        self.gamma_reward = self.gamma_reward * self.gamma + reward
-        done = self.day == self.max_step
         if done:
-            reward = self.gamma_reward
             self.episode_return = total_asset / self.initial_total_asset
 
         return state, reward, done, False, dict()

@@ -351,6 +351,7 @@ class YahooFinanceProcessor:
             .rename(
                 columns={
                     "Date": "timestamp",
+                    "Datetime": "timestamp",
                     "Open": "open",
                     "High": "high",
                     "Low": "low",
@@ -375,7 +376,7 @@ class YahooFinanceProcessor:
             times = []
             for day in trading_days:
                 #                NY = "America/New_York"
-                current_time = pd.Timestamp(day + " 09:30:00").tz_localize(NY)
+                current_time = pd.Timestamp(day + " 09:30:00")
                 for i in range(390):  # 390 minutes in trading day
                     times.append(current_time)
                     current_time += pd.Timedelta(minutes=1)

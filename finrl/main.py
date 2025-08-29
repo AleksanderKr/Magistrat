@@ -10,15 +10,17 @@ from finrl.config import ERL_PARAMS
 from finrl.config import INDICATORS
 from finrl.config import RESULTS_DIR
 from finrl.config import TENSORBOARD_LOG_DIR
-from finrl.config import TEST_END_DATE
-from finrl.config import TEST_START_DATE
-from finrl.config import TRADE_END_DATE
-from finrl.config import TRADE_START_DATE
-from finrl.config import TRAIN_END_DATE
-from finrl.config import TRAIN_START_DATE
+from finrl.config import TRAIN_START_DATE, TRAIN_END_DATE
+from finrl.config import TEST_START_DATE, TEST_END_DATE
+from finrl.config import TRADE_START_DATE, TRADE_END_DATE
+from finrl.config import INTRA_TRAIN_START, INTRA_TRAIN_END
+from finrl.config import INTRA_VAL_START, INTRA_VAL_END
+from finrl.config import INTRA_TEST_START, INTRA_TEST_END
 from finrl.config import TRAINED_MODEL_DIR
 from finrl.config import SHARPE_PARAMS
 from finrl.config_tickers import DOW_30_TICKER, SINGLE_TICKER, DOW_5_TEST
+from finrl.meta.env_stock_trading.env_intraday_np_test import IntradayTradingTestEnv
+from finrl.meta.env_stock_trading.env_intraday_np_train import IntradayTradingTrainEnv
 
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
@@ -67,18 +69,18 @@ def main() -> int:
     if options.mode == "train":
         from finrl import train
 
-        env = StockTradingEnv
+        env = IntradayTradingTrainEnv
 
         # demo for elegantrl
         kwargs = (
             {}
         )  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
         train(
-            start_date=TRAIN_START_DATE,
-            end_date=TRAIN_END_DATE,
+            start_date=INTRA_TRAIN_START,
+            end_date=INTRA_TRAIN_END,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
-            time_interval="1D",
+            time_interval="1m",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
@@ -91,18 +93,18 @@ def main() -> int:
     elif options.mode == "test":
         from finrl import test
 
-        env = StockTradingEnv
+        env = IntradayTradingTestEnv
 
         # demo for elegantrl
         # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
         kwargs = {}
 
         account_value_erl = test(  # noqa
-            start_date=VALIDATION_START_DATE,
-            end_date=VALIDATION_END_DATE,
+            start_date=INTRA_VAL_START,
+            end_date=INTRA_VAL_END,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
-            time_interval="1D",
+            time_interval="1m",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,

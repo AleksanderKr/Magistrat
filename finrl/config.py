@@ -32,6 +32,17 @@ CRISIS_TEST_END_DATE = "2023-01-01"
 TRADE_START_DATE = "2021-02-01"
 TRADE_END_DATE = "2021-12-01"
 
+# intraday dates
+INTRA_TRAIN_START = "2025-08-05"
+INTRA_TRAIN_END = "2025-08-18"
+
+INTRA_VAL_START = "2025-08-19"
+INTRA_VAL_END = "2025-08-22"
+
+INTRA_TEST_START = "2025-08-24"
+INTRA_TEST_END = "2025-08-29"
+# intraday dates
+
 # stockstats technical indicator column names
 # check https://pypi.org/project/stockstats/ for different names
 INDICATORS = [
