@@ -29,8 +29,12 @@ class IntradayTradingTrainEnv(gym.Env):
         self.turbulence_ary = turbulence_ary
 
         self.tech_ary = self.tech_ary * 2**-7
-        self.turbulence_bool = np.zeros_like(turbulence_ary, dtype=np.float32)
-        self.turbulence_ary = np.zeros_like(turbulence_ary, dtype=np.float32)
+        """self.turbulence_bool = np.zeros_like(turbulence_ary, dtype=np.float32)
+        self.turbulence_ary = np.zeros_like(turbulence_ary, dtype=np.float32)"""
+        self.turbulence_bool = (turbulence_ary > turbulence_thresh).astype(np.float32)
+        self.turbulence_ary = (
+            self.sigmoid_sign(turbulence_ary, turbulence_thresh) * 2**-5
+        ).astype(np.float32)
 
         stock_dim = self.price_ary.shape[1]
         self.gamma = gamma
@@ -65,10 +69,14 @@ class IntradayTradingTrainEnv(gym.Env):
         self.max_step = self.price_ary.shape[0] - 1
         self.if_train = if_train
 
-        self.ep_len = int(config.get("ep_len", 390)) # 390 minutes
-        self.session_end_idx = config.get("session_end_idx")
-        assert self.session_end_idx is not None and len(self.session_end_idx) > 0, "Provide session_end_idx in the config"
+        self.ep_len = int(config.get("ep_len", 390))
         self.warmup_lookback = int(config.get("warmup_lookback", 0))
+        total_steps = int(self.price_ary.shape[0])
+        self.num_sessions = max(0, total_steps // self.ep_len)
+        assert self.num_sessions > 0, "Not enough data for at least one full session of length ep_len"
+
+        self.start_day = 0
+        self.end_day = self.start_day + max(self.ep_len, 1) - 1
         self.start_day = 0
         self.end_day = self.start_day + max(self.ep_len, 1) - 1
 
@@ -89,26 +97,14 @@ class IntradayTradingTrainEnv(gym.Env):
             seed=None,
             options=None,
     ):
-        sess_id = int(rd.randint(0, len(self.session_end_idx)))
-        sess_end = int(self.session_end_idx[sess_id])
-        sess_start = 0 if sess_id == 0 else int(self.session_end_idx[sess_id - 1]) + 1
-
-        available = sess_end - sess_start + 1
+        sess_id = int(rd.randint(0, self.num_sessions))
+        base = sess_id * self.ep_len
 
         wu = max(0, int(self.warmup_lookback))
-        wu = min(wu, max(0, available - 1))
+        wu = min(wu, max(0, self.ep_len - 1))
 
-        if self.ep_len > available - wu:
-            self.start_day = sess_start + wu
-            self.end_day = sess_end
-        else:
-            start_low = sess_start + wu
-            start_high = sess_end - self.ep_len + 1
-            if start_high < start_low:
-                self.start_day = sess_end - self.ep_len + 1
-            else:
-                self.start_day = int(rd.randint(start_low, start_high + 1))
-            self.end_day = self.start_day + self.ep_len - 1
+        self.start_day = base + wu
+        self.end_day = base + self.ep_len - 1
 
         self.day = self.start_day
 

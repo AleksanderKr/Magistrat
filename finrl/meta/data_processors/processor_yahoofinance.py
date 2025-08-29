@@ -360,6 +360,10 @@ class YahooFinanceProcessor:
                 }
             )
         )
+        data_df["timestamp"] = pd.to_datetime(data_df["timestamp"])
+        if getattr(data_df["timestamp"].dt, "tz", None) is not None:
+            data_df["timestamp"] = data_df["timestamp"].dt.tz_convert("America/New_York").dt.tz_localize(None)
+        data_df["timestamp"] = data_df["timestamp"].dt.floor("min")
         # ensure column order
         data_df = data_df[["timestamp", "close", "high", "low", "open", "volume", "tic"]]
         return data_df

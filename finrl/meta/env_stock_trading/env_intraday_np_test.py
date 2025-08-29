@@ -64,9 +64,7 @@ class IntradayTradingTestEnv(gym.Env):
         self.action_dim = stock_dim
         self.max_step = self.price_ary.shape[0] - 1
         self.if_train = if_train
-
-        self.warmup_lookback = int(
-            config.get("warmup_lookback", 0))
+        self.warmup_lookback = int(config.get("warmup_lookback", 0))
         self.start_day = 0
         self.end_day = self.max_step
 
@@ -81,13 +79,8 @@ class IntradayTradingTestEnv(gym.Env):
             low=-1, high=1, shape=(self.action_dim,), dtype=np.float32
         )
 
-    def reset(
-            self,
-            *,
-            seed=None,
-            options=None,
-    ):
-        self.start_day = int(max(0, self.warmup_lookback))
+    def reset(self, *, seed=None, options=None):
+        self.start_day = 0
         self.end_day = self.max_step
         self.day = self.start_day
 
@@ -99,7 +92,6 @@ class IntradayTradingTestEnv(gym.Env):
 
         self.total_asset = self.amount + (self.stocks * price).sum()
         self.initial_total_asset = self.total_asset
-
         self.gamma_reward = 0.0
 
         return self.get_state(price), {}
@@ -107,35 +99,28 @@ class IntradayTradingTestEnv(gym.Env):
     def step(self, actions):
         actions = (actions * self.max_stock).astype(int)
 
-        self.day += 1
-        if self.day > self.max_step:
-            self.day = self.max_step
-        price = self.price_ary[self.day]
+        # nie wychodzimy poza koniec bufora
+        if self.day < self.end_day:
+            self.day += 1
 
+        price = self.price_ary[self.day]
         self.stocks_cool_down += 1
 
         if self.turbulence_bool[self.day] == 0:
-            min_action = int(self.max_stock * self.min_stock_rate)  # stock_cd
-            for index in np.where(actions < -min_action)[0]:  # sell_index:
-                if price[index] > 0:  # Sell only if current asset is > 0
+            min_action = int(self.max_stock * self.min_stock_rate)
+            for index in np.where(actions < -min_action)[0]:
+                if price[index] > 0:
                     sell_num_shares = min(self.stocks[index], -actions[index])
                     self.stocks[index] -= sell_num_shares
-                    self.amount += (
-                        price[index] * sell_num_shares * (1 - self.sell_cost_pct)
-                    )
+                    self.amount += price[index] * sell_num_shares * (1 - self.sell_cost_pct)
                     self.stocks_cool_down[index] = 0
-            for index in np.where(actions > min_action)[0]:  # buy_index:
-                if (
-                    price[index] > 0
-                ):  # Buy only if the price is > 0 (no missing data in this particular date)
+            for index in np.where(actions > min_action)[0]:
+                if price[index] > 0:
                     buy_num_shares = min(self.amount // price[index], actions[index])
                     self.stocks[index] += buy_num_shares
-                    self.amount -= (
-                        price[index] * buy_num_shares * (1 + self.buy_cost_pct)
-                    )
+                    self.amount -= price[index] * buy_num_shares * (1 + self.buy_cost_pct)
                     self.stocks_cool_down[index] = 0
-
-        else:  # sell all when turbulence
+        else:
             self.amount += (self.stocks * price).sum() * (1 - self.sell_cost_pct)
             self.stocks[:] = 0
             self.stocks_cool_down[:] = 0
@@ -144,9 +129,8 @@ class IntradayTradingTestEnv(gym.Env):
         total_asset = self.amount + (self.stocks * price).sum()
         reward = (total_asset - self.total_asset) * self.reward_scaling
         self.total_asset = total_asset
-        #self.gamma_reward = self.gamma_reward * self.gamma + reward
-        done = (self.day >= self.end_day)
 
+        done = (self.day >= self.end_day)
         if done:
             self.episode_return = total_asset / self.initial_total_asset
 
