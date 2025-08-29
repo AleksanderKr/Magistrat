@@ -4,7 +4,7 @@ import os
 from argparse import ArgumentParser
 from typing import List
 
-from finrl.config import ALPACA_API_BASE_URL, ERL_TMP_PARAMS
+from finrl.config import ALPACA_API_BASE_URL, ERL_TMP_PARAMS, VALIDATION_START_DATE, VALIDATION_END_DATE
 from finrl.config import DATA_SAVE_DIR
 from finrl.config import ERL_PARAMS
 from finrl.config import INDICATORS
@@ -19,8 +19,12 @@ from finrl.config import TRAIN_START_DATE
 from finrl.config import TRAINED_MODEL_DIR
 from finrl.config import SHARPE_PARAMS
 from finrl.config_tickers import DOW_30_TICKER, SINGLE_TICKER, DOW_5_TEST
+
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
+from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
+from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
 from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
+
 import warnings, pandas as pd
 warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
 
@@ -78,10 +82,10 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ddpg",
-            cwd="./test_ddpg",
+            model_name="ppo",
+            cwd="./test_ppo",
             erl_params=ERL_TMP_PARAMS,
-            break_step=3e6,
+            break_step=3e5,
             kwargs=kwargs,
         )
     elif options.mode == "test":
@@ -94,16 +98,16 @@ def main() -> int:
         kwargs = {}
 
         account_value_erl = test(  # noqa
-            start_date=TEST_START_DATE,
-            end_date=TEST_END_DATE,
+            start_date=VALIDATION_START_DATE,
+            end_date=VALIDATION_END_DATE,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
             time_interval="1D",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ddpg",
-            cwd="./test_ddpg",
+            model_name="ppo",
+            cwd="./test_ppo",
             net_dimension=512,
             kwargs=kwargs,
         )
@@ -127,8 +131,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ddpg",
-            cwd="./test_ddpg",
+            model_name="ppo",
+            cwd="./test_ppo",
             API_KEY=ALPACA_API_KEY,
             API_SECRET=ALPACA_API_SECRET,
             API_BASE_URL=ALPACA_API_BASE_URL,
@@ -136,10 +140,10 @@ def main() -> int:
             if_vix=True,
             kwargs=kwargs,
             state_dim=len(DOW_30_TICKER) * (len(INDICATORS) + 3)
-            + 3,  # bug fix: for ddpg add dimension of state/observations space =  len(stocks)* len(INDICATORS) + 3+ 3*len(stocks)
+            + 3,  # bug fix: for ppo add dimension of state/observations space =  len(stocks)* len(INDICATORS) + 3+ 3*len(stocks)
             action_dim=len(
                 DOW_30_TICKER
-            ),  # bug fix: for ddpg add dimension of action space = len(stocks)
+            ),  # bug fix: for ppo add dimension of action space = len(stocks)
         )
     else:
         raise ValueError("Wrong mode.")

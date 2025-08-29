@@ -25,6 +25,8 @@ from typing import List, Tuple
 import optuna
 from optuna.samplers import NSGAIISampler
 
+from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
+from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
 from finrl.train import train
 from finrl.test import test
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
@@ -138,7 +140,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
         time_interval="1D",
         technical_indicator_list=INDICATORS,
         drl_lib="elegantrl",
-        env=StockTradingEnv,
+        env=DailyTradingTrainEnv,
         model_name=model_name,
         cwd=cwd,
         erl_params=erl_params,
@@ -154,7 +156,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
         time_interval="1D",
         technical_indicator_list=INDICATORS,
         drl_lib="elegantrl",
-        env=StockTradingEnv,
+        env=DailyTradingTestEnv,
         model_name=model_name,
         cwd=cwd,
         net_dimension=erl_params["net_dimension"],
@@ -215,6 +217,7 @@ if __name__ == "__main__":
 
     _init_log(series_tag)
 
+    SEED = 312
     if args.mode == "single":
         study_name = f"finrl_single_second_{args.model}"
         #study_name = f"finrl_Second_single_sac_SINGLE_sac_20trials_250729_082359"
@@ -222,6 +225,7 @@ if __name__ == "__main__":
             study_name=study_name,
             storage="sqlite:///optuna_finrl.db",
             direction="maximize",
+            sampler=optuna.samplers.TPESampler(seed=SEED),
             load_if_exists=True,
         )
     else:
@@ -230,7 +234,7 @@ if __name__ == "__main__":
             study_name=study_name,
             storage="sqlite:///optuna_finrl.db",
             directions=["maximize", "maximize"],
-            sampler=NSGAIISampler(),
+            sampler=NSGAIISampler(seed=SEED),
             load_if_exists=True,
         )
 

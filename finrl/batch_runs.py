@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 
+from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
+from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
 from finrl.train import train
 from finrl.test  import test
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
@@ -76,7 +78,7 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str):
         start_date=TRAIN_START_DATE, end_date=TRAIN_END_DATE,
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
         time_interval="1D", technical_indicator_list=INDICATORS,
-        drl_lib="elegantrl", env=StockTradingEnv, model_name=model_name,
+        drl_lib="elegantrl", env=DailyTradingTrainEnv, model_name=model_name,
         cwd=cwd, erl_params=erl_params, break_step=BREAK_STEP
     )
 
@@ -84,7 +86,7 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str):
         start_date=TEST_START_DATE, end_date=TEST_END_DATE,
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
         time_interval="1D", technical_indicator_list=INDICATORS,
-        drl_lib="elegantrl", env=StockTradingEnv, model_name=model_name,
+        drl_lib="elegantrl", env=DailyTradingTestEnv, model_name=model_name,
         cwd=cwd, net_dimension=erl_params["net_dimension"]
     )
     ret = assets[-1] / assets[0] - 1
