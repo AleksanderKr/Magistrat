@@ -85,3 +85,42 @@ class DataProcessor:
         tech_inf_positions = np.isinf(tech_array)
         tech_array[tech_inf_positions] = 0
         return price_array, tech_array, turbulence_array
+
+    def add_covariance_matrix(self, df: pd.DataFrame, lookback: int = 252) -> pd.DataFrame:
+        data = df.copy()
+
+        if "date" not in data.columns:
+            if "timestamp" not in data.columns:
+                raise ValueError("add_covariance_matrix: requires 'timestamp' or 'date' column.")
+            data["date"] = pd.to_datetime(data["timestamp"]).dt.date
+
+        price_pivot = (
+            data.pivot(index="date", columns="tic", values="close")
+            .sort_index()
+        )
+        returns = price_pivot.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+        dates = returns.index.to_list()
+        cov_list = []
+        n_assets = len(price_pivot.columns)
+
+        for i in range(len(dates)):
+            start = max(0, i - lookback + 1)
+            window = returns.iloc[start:i+1]
+            if window.shape[0] < 2:
+                cov = np.eye(n_assets, dtype=float)
+            else:
+                cov = np.cov(window.values.T)
+                if np.isnan(cov).any() or np.isinf(cov).any():
+                    cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
+            cov_list.append(cov)
+
+        cov_df = pd.DataFrame({"date": dates, "cov_list": cov_list})
+        out = data.merge(cov_df, on="date", how="left").sort_values(["timestamp", "tic"])
+
+        out["day"] = pd.factorize(out["date"])[0]  # 0,1,2,...
+        out = out.set_index("day")
+
+        return out
+
+

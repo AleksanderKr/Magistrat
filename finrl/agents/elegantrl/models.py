@@ -46,11 +46,12 @@ class DRLAgent:
             make a prediction in a test dataset and get results
     """
 
-    def __init__(self, env, price_array, tech_array, turbulence_array):
+    def __init__(self, env, price_array, tech_array, turbulence_array, env_args):
         self.env = env
         self.price_array = price_array
         self.tech_array = tech_array
         self.turbulence_array = turbulence_array
+        self.env_args = env_args
 
     def get_model(self, model_name, model_kwargs):
         self.env_config = {
@@ -69,16 +70,42 @@ class DRLAgent:
             raise NotImplementedError("NotImplementedError")
 
         stock_dim = self.price_array.shape[1]
-        self.state_dim = 1 + 2 + 3 * stock_dim + self.tech_array.shape[1]
-        self.action_dim = stock_dim
-        self.env_args = {
-            "env_name": "StockEnv",
-            "config": self.env_config,
-            "state_dim": self.state_dim,
-            "action_dim": self.action_dim,
-            "if_discrete": False,
-            "max_step": self.price_array.shape[0] - 1,
-        }
+        trading_state_dim = 1 + 2 + 3 * stock_dim + self.tech_array.shape[1]
+        action_dim = stock_dim
+        if getattr(self, "env_args", None) and "df" in self.env_args:
+            df = self.env_args["df"]
+            if "day" in getattr(df, "columns", []):
+                max_step = int(df["day"].nunique())
+            else:
+                max_step = int(df.index.nunique())
+        else:
+            max_step = self.price_array.shape[0]
+
+        if self.env_args is not None:
+            tech_dim = int(self.tech_array.shape[1] // stock_dim)
+            portfolio_state_dim = stock_dim * (stock_dim + tech_dim)
+            merged_env_args = {
+                **self.env_args,
+                "env_name": env.__name__,
+                "state_dim": portfolio_state_dim if env.__name__ == "StockPortfolioEnv" else trading_state_dim,
+                "action_dim": action_dim,
+                "if_discrete": False,
+                "max_step": max_step,
+            }
+            self.env_args = merged_env_args
+            self.state_dim = self.env_args["state_dim"]
+            self.action_dim = action_dim
+        else:
+            self.state_dim = trading_state_dim
+            self.action_dim = action_dim
+            self.env_args = {
+                "env_name": env.__name__,
+                "config": self.env_config,
+                "state_dim": self.state_dim,
+                "action_dim": self.action_dim,
+                "if_discrete": False,
+                "max_step": max_step,
+            }
 
         model = Config(agent_class=agent, env_class=env, env_args=self.env_args)
         model.if_off_policy = model_name in OFF_POLICY_MODELS
@@ -90,9 +117,10 @@ class DRLAgent:
                 model.net_dims = (
                     128,
                     64,
-                )  # the middle layer dimension of MultiLayer Perceptron
+                )  # the middle layer dimension of MultiLayer Perceptron`
                 model.gamma = self.gamma  # discount factor of future rewards
-                model.horizon_len = model.max_step
+                model.max_step = int(self.env_args["max_step"])
+                model.horizon_len = min(1024, model.max_step)
                 model.repeat_times = 16  # repeatedly update network using ReplayBuffer to keep critic's loss small
                 model.learning_rate = model_kwargs.get("learning_rate", 1e-4)
                 model.state_value_tau = 0.1  # the tau of normalize for value and state `std = (1-std)*std + tau*std`
@@ -112,68 +140,86 @@ class DRLAgent:
     @staticmethod
     def DRL_prediction(model_name, cwd, net_dimension, environment, env_args):
         import torch
-
-        gpu_id = 0  # >=0 means GPU ID, -1 means CPU
         agent_class = MODELS[model_name]
-        stock_dim = env_args["price_array"].shape[1]
-        state_dim = 1 + 2 + 3 * stock_dim + env_args["tech_array"].shape[1]
-        action_dim = stock_dim
-        env_args = {
-            "env_num": 1,
-            "env_name": "StockEnv",
-            "state_dim": state_dim,
-            "action_dim": action_dim,
-            "if_discrete": False,
-            "max_step": env_args["price_array"].shape[0] - 1,
-            "config": env_args,
-        }
+        env = environment
+
+        try:
+            state_dim = getattr(env, "state_dim", None) or env.observation_space.shape[0]
+        except Exception:
+            stock_dim_fb = env_args["price_array"].shape[1]
+            state_dim = 1 + 2 + 3 * stock_dim_fb + env_args["tech_array"].shape[1]
+
+        try:
+            action_dim = getattr(env, "action_dim", None) or env.action_space.shape[0]
+        except Exception:
+            action_dim = env_args["price_array"].shape[1]
+
+        if_discrete = getattr(env, "if_discrete", False)
+        max_step = int(getattr(env, "max_step", 0)) or int(env_args["price_array"].shape[0] - 1)
 
         actor_path = f"{cwd}/act.pth"
-        net_dim = [2**7]
 
-        """init"""
-        env = environment
-        env_class = env
-        args = Config(agent_class=agent_class, env_class=env_class, env_args=env_args)
-        args.cwd = cwd
-        act = agent_class(
-            net_dim, env.state_dim, env.action_dim, gpu_id=gpu_id, args=args
-        ).act
-        parameters_dict = {}
-        act = torch.load(actor_path, weights_only=False)
-        for name, param in act.named_parameters():
-            parameters_dict[name] = torch.tensor(param.detach().cpu().numpy())
+        loaded = torch.load(actor_path, weights_only=False)
 
-        act.load_state_dict(parameters_dict)
+        if isinstance(loaded, torch.nn.Module):
+            act = loaded
+        else:
+            net_dims = [net_dimension] if isinstance(net_dimension, int) else net_dimension
+            args = Config(
+                agent_class=agent_class,
+                env_class=type(env),
+                env_args=dict(
+                    env_num=1,
+                    env_name=type(env).__name__,
+                    state_dim=state_dim,
+                    action_dim=action_dim,
+                    if_discrete=if_discrete,
+                    max_step=max_step,
+                ),
+            )
+            args.cwd = cwd
+            act = agent_class(net_dims, state_dim, action_dim, gpu_id=0, args=args).act
+            state_dict = loaded if isinstance(loaded, dict) else loaded.state_dict()
+            act.load_state_dict(state_dict, strict=False)
 
-        if_discrete = env.if_discrete
         device = next(act.parameters()).device
-        state = env.reset()
-        if isinstance(state, tuple):  # new gymnasium / finrl ≥2024
-            state, _info = state
-        episode_returns = []  # the cumulative_return / initial_account
-        episode_total_assets = [env.initial_total_asset]
-        max_step = env.max_step
-        for steps in range(max_step):
-            s_tensor = torch.as_tensor(
-                state, dtype=torch.float32, device=device
-            ).unsqueeze(0)
-            a_tensor = act(s_tensor).argmax(dim=1) if if_discrete else act(s_tensor)
-            action = (
-                a_tensor.detach().cpu().numpy()[0]
-            )  # not need detach(), because using torch.no_grad() outside
-            step_out = env.step(action)
-            if len(step_out) == 5:  # gymnasium API
-                state, reward, terminated, truncated, _ = step_out
+
+        s0 = env.reset()
+        state = s0[0] if isinstance(s0, tuple) else s0
+
+        init_asset = getattr(env, "initial_total_asset",
+                             getattr(env, "initial_amount",
+                                     getattr(env, "initial_capital", 1e6)))
+        episode_total_assets = [float(init_asset)]
+
+        max_step = int(getattr(env, "max_step", max_step))
+        for _ in range(max_step):
+            s_tensor = torch.as_tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+            with torch.no_grad():
+                a_tensor = act(s_tensor)
+            action = a_tensor.argmax(dim=1).cpu().numpy()[0] if if_discrete else a_tensor.cpu().numpy()[0]
+
+            out = env.step(action)
+            if len(out) == 5:  # gymnasium API
+                state, reward, terminated, truncated, _ = out
                 done = terminated or truncated
             else:  # classic gym API
-                state, reward, done, _ = step_out
-            total_asset = env.amount + (env.price_ary[env.day] * env.stocks).sum()
+                state, reward, done, _ = out
+
+            if hasattr(env, "portfolio_value"):
+                total_asset = float(env.portfolio_value)  # Allocation
+            elif hasattr(env, "asset_memory") and len(env.asset_memory) > 0:
+                total_asset = float(env.asset_memory[-1])
+            elif hasattr(env, "amount") and hasattr(env, "price_ary") and hasattr(env, "stocks"):
+                total_asset = float(env.amount + (env.price_ary[env.day] * env.stocks).sum())  # Trading
+            else:
+                total_asset = episode_total_assets[-1] * (1.0 + float(reward))
+
             episode_total_assets.append(total_asset)
-            episode_return = total_asset / env.initial_total_asset
-            episode_returns.append(episode_return)
             if done:
                 break
+
         print("Test Finished!")
-        print("episode_return", episode_return)
+        print("episode_return", episode_total_assets[-1] / episode_total_assets[0])
         return episode_total_assets
+

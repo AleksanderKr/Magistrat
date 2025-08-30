@@ -1,3 +1,8 @@
+""""
+python -m finrl.main --mode=train
+"""
+
+
 from __future__ import annotations
 
 import os
@@ -69,22 +74,22 @@ def main() -> int:
     if options.mode == "train":
         from finrl import train
 
-        env = IntradayTradingTrainEnv
-        #env = DailyTradingTrainEnv
+        #env = IntradayTradingTrainEnv
+        env = StockPortfolioEnv
 
         # demo for elegantrl
         kwargs = (
             {}
         )  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
         train(
-            start_date=INTRA_TRAIN_START,
-            #start_date=TRAIN_START_DATE,
-            end_date=INTRA_TRAIN_END,
-            #end_date=TRAIN_END_DATE,
+            #start_date=INTRA_TRAIN_START,
+            start_date=TRAIN_START_DATE,
+            #end_date=INTRA_TRAIN_END,
+            end_date=TRAIN_END_DATE,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
-            time_interval="1m",
-            #time_interval="1d",
+            #time_interval="1m",
+            time_interval="1d",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
@@ -97,18 +102,18 @@ def main() -> int:
     elif options.mode == "test":
         from finrl import test
 
-        env = IntradayTradingTestEnv
+        env = StockPortfolioEnv
 
         # demo for elegantrl
         # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
         kwargs = {}
 
         account_value_erl = test(  # noqa
-            start_date=INTRA_VAL_START,
-            end_date=INTRA_VAL_END,
+            start_date=VALIDATION_START_DATE,
+            end_date=VALIDATION_END_DATE,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
-            time_interval="1m",
+            time_interval="1d",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,

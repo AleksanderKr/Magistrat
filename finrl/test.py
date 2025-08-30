@@ -7,6 +7,7 @@ from finrl.config import TEST_END_DATE
 from finrl.config import TEST_START_DATE
 from finrl.config_tickers import DOW_30_TICKER
 from finrl.meta.env_stock_trading.env_stocktrading import StockTradingEnv
+from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
 import os
 import matplotlib as mpl
 mpl.use("Agg")
@@ -56,6 +57,7 @@ def test(
     env,
     model_name,
     if_vix=True,
+    env_extra=None,
     **kwargs,
 ):
     # import data processor
@@ -82,7 +84,57 @@ def test(
         "if_train": False,
         **SHARPE_PARAMS
     }
-    env_instance = env(config=env_config)
+    if getattr(env, "__name__", "") == "StockPortfolioEnv":
+        if "cov_list" not in data.columns:
+            lookback = int((env_extra or {}).get("lookback", 252))
+            data = dp.add_covariance_matrix(data, lookback=lookback)
+            assert "cov_list" in data.columns, "add_covariance_matrix() did not add 'cov_list'"
+
+        stock_dim = len(ticker_list)
+        action_dim = stock_dim
+        tech_dim = len(technical_indicator_list)
+        state_space = stock_dim
+
+        max_step_days = int(data["day"].nunique()) if "day" in data.columns else int(
+            data["timestamp"].dt.date.nunique()
+        )
+
+        env_instance = StockPortfolioEnv(
+            df=data,
+            stock_dim=stock_dim,
+            hmax=(env_extra or {}).get("hmax", 100),
+            initial_amount=(env_extra or {}).get("initial_amount", 1e6),
+            transaction_cost_pct=(env_extra or {}).get("transaction_cost_pct", 1e-3),
+            reward_scaling=(env_extra or {}).get("reward_scaling", 100.0),
+            state_space=state_space,
+            action_space=action_dim,
+            tech_indicator_list=technical_indicator_list,
+            turbulence_threshold=(env_extra or {}).get("turbulence_threshold", None),
+            lookback=(env_extra or {}).get("lookback", 252),
+            day=(env_extra or {}).get("day", 0),
+        )
+
+        env_instance.max_step = min(max_step_days, 12345)
+
+        env_args_erl = dict(
+            env_name="StockPortfolioEnv",
+            state_dim=stock_dim * (stock_dim + tech_dim),
+            action_dim=action_dim,
+            if_discrete=False,
+            max_step=min(max_step_days, 12345),
+            price_array=price_array,
+            tech_array=tech_array,
+            turbulence_array=turbulence_array,
+        )
+    else:
+        env_args = {
+            "price_array": price_array,
+            "tech_array": tech_array,
+            "turbulence_array": turbulence_array,
+        }
+        env_config = {**env_args, "if_train": False, **SHARPE_PARAMS}
+        env_instance = env(config=env_config)
+        env_args_erl = env_args
 
     # load elegantrl needs state dim, action dim and net dim
     net_dimension = kwargs.get("net_dimension", 2**7)
@@ -97,12 +149,13 @@ def test(
             cwd=cwd,
             net_dimension=net_dimension,
             environment=env_instance,
-            env_args=env_args
+            env_args=env_args_erl
         )
         assets = np.asarray(episode_total_assets, dtype=float)
 
         # ---------- Buy & Hold ----------
-        init_cash = env_instance.initial_capital
+        init_cash = getattr(env_instance, "initial_capital",
+                            getattr(env_instance, "initial_amount", 1e6))
         first_px, last_px = price_array[0], price_array[-1]
 
         equal_cash = init_cash / len(first_px)
@@ -116,22 +169,29 @@ def test(
         ann_vol = daily_ret.std(ddof=0) * np.sqrt(252)
         cagr = (assets[-1] / assets[0]) ** (252 / len(daily_ret)) - 1
         max_dd = (assets / np.maximum.accumulate(assets) - 1).min()
+        rf = 0.0
+        sharpe = (daily_ret.mean() - rf / 252) / daily_ret.std(ddof=1) * np.sqrt(252) if daily_ret.std(
+            ddof=1) > 0 else np.nan
 
         # ----------  BnH ----------
         bnh_daily_ret = np.diff(bnh_curve) / bnh_curve[:-1]
         bnh_ann_vol = bnh_daily_ret.std(ddof=0) * np.sqrt(252)
         bnh_max_dd = (bnh_curve / np.maximum.accumulate(bnh_curve) - 1).min()
 
-        alpha_pct = assets[-1] / (assets[0] * bnh_return) - 1  # „pobicie” BnH
+        alpha_pct = assets[-1] / (assets[0] * bnh_return) - 1
 
         # ---------- print ----------
         print(
-            f"Episode return: {assets[-1] / assets[0] - 1:.2%}   |   Sharpe: {(cagr / ann_vol if ann_vol else np.nan):.3f}")
+            f"Episode return: {assets[-1] / assets[0] - 1:.2%}   |   Sharpe: {sharpe:.3f}")
         print(f"Buy&Hold return: {bnh_return - 1:.2%}            |   Agent vs BnH: {alpha_pct:.2%}")
         print(f"CAGR: {cagr:.2%}   |   AnnVol: {ann_vol:.2%}   |   MaxDD: {max_dd:.2%}")
         print(f"BnH  AnnVol: {bnh_ann_vol:.2%}   |   MaxDD: {bnh_max_dd:.2%}")
 
         # ---------- plot ----------
+        if len(bnh_curve) != len(assets):
+            n = min(len(bnh_curve), len(assets))
+            bnh_curve = bnh_curve[:n]
+            assets = assets[:n]
 
         save_equity_curve(
             agent_curve=assets,

@@ -8,6 +8,7 @@ from finrl.config import TRAIN_END_DATE
 from finrl.config import TRAIN_START_DATE
 from finrl.config_tickers import DOW_30_TICKER, SINGLE_TICKER, DOW_5_TEST
 from finrl.meta.data_processor import DataProcessor
+from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 
 # construct environment
@@ -35,15 +36,44 @@ def train(
     if if_vix:
         data = dp.add_vix(data)
     price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
-    env_config = {
-        "price_array": price_array,
-        "tech_array": tech_array,
-        "turbulence_array": turbulence_array,
-        "if_train": True,
-        **SHARPE_PARAMS,
-        **(env_extra or {})
-    }
-    env_instance = env(config=env_config)
+    if getattr(env, "__name__", "") == "StockPortfolioEnv":
+        if not {"cov_list"}.issubset(set(data.columns)):
+            data = dp.add_covariance_matrix(data, lookback=int((env_extra or {}).get("lookback", 252)))
+
+        stock_dim = len(ticker_list)
+        action_dim = stock_dim
+        state_space = stock_dim
+
+        env = StockPortfolioEnv
+
+        max_step_days = int(data["day"].nunique() - 1) if "day" in data.columns else int(
+            data["timestamp"].dt.date.nunique() - 1)
+        env_args = dict(
+            df=data,
+            stock_dim=stock_dim,
+            hmax=(env_extra or {}).get("hmax", 100),
+            initial_amount=(env_extra or {}).get("initial_amount", 1e6),
+            transaction_cost_pct=(env_extra or {}).get("transaction_cost_pct", 1e-3),
+            reward_scaling=(env_extra or {}).get("reward_scaling", 100),
+            state_space=(env_extra or {}).get("state_space", state_space),
+            action_space=(env_extra or {}).get("action_space", action_dim),
+            tech_indicator_list=technical_indicator_list,
+            turbulence_threshold=(env_extra or {}).get("turbulence_threshold", None),
+            lookback=(env_extra or {}).get("lookback", 252),
+            day=(env_extra or {}).get("day", 0),
+            max_step=min(max_step_days, 12345),
+        )
+    else:
+        env_args = {
+            "config": {
+                "price_array": price_array,
+                "tech_array": tech_array,
+                "turbulence_array": turbulence_array,
+                "if_train": True,
+                **SHARPE_PARAMS,
+                **(env_extra or {}),
+            }
+        }
 
     # read parameters
     cwd = kwargs.get("cwd", "./" + str(model_name))
@@ -58,6 +88,7 @@ def train(
             price_array=price_array,
             tech_array=tech_array,
             turbulence_array=turbulence_array,
+            env_args=env_args,
         )
         model = agent.get_model(model_name, model_kwargs=erl_params)
         trained_model = agent.train_model(
