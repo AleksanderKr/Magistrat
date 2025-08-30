@@ -1,0 +1,10 @@
+timestamp,series,trial_id,mode,model,return,sharpe,agent_vs_bnh,params_json
+2025-08-30T11:15:48.811106,NEW_SERIES_SINGLE_ppo_20trials_250830_111548,,,,,,,
+2025-08-30T11:16:04.930183,NEW_SERIES_SINGLE_ppo_20trials_250830_111604,,,,,,,
+2025-08-30T11:20:10,SINGLE_ppo_20trials_250830_111604,trial_063,single,ppo,0.0154,0.0918,0.0080,"{""erl"": {""learning_rate"": 0.0005102558282846345, ""batch_size"": 2048, ""gamma"": 0.9589804695130596, ""net_dimension"": 512, ""net_dims"": [1024, 512], ""target_step"": 8192, ""horizon_len"": 2048, ""repeat_times"": 3.0, ""buffer_size"": 1000000, ""buffer_init_size"": 4096, ""eval_gap"": 64, ""eval_times"": 16}}"
+2025-08-30T11:20:44.503513,NEW_SERIES_PARETO_ppo_20trials_250830_112044,,,,,,,
+2025-08-30T11:24:59,PARETO_ppo_20trials_250830_112044,trial_016,pareto,ppo,0.0045,0.0259,-0.0029,"{""erl"": {""learning_rate"": 1.3204392685000274e-05, ""batch_size"": 1024, ""gamma"": 0.9954379276836015, ""net_dimension"": 512, ""net_dims"": [256, 256], ""target_step"": 8192, ""horizon_len"": 2048, ""repeat_times"": 2.0, ""buffer_size"": 1000000, ""buffer_init_size"": 2048, ""eval_gap"": 64, ""eval_times"": 16}}"
+2025-08-30T11:25:54.263109,NEW_SERIES_SINGLE_ppo_20trials_250830_112554,,,,,,,
+2025-08-30T11:30:56,SINGLE_ppo_20trials_250830_112554,trial_065,single,ppo,0.0176,0.3875,0.0057,"{""erl"": {""learning_rate"": 4.0859667401974604e-05, ""batch_size"": 2048, ""gamma"": 0.9562080012322902, ""net_dimension"": 1024, ""net_dims"": [1024, 512], ""target_step"": 8192, ""horizon_len"": 2048, ""repeat_times"": 4.0, ""buffer_size"": 1000000, ""buffer_init_size"": 4096, ""eval_gap"": 64, ""eval_times"": 16}}"
+2025-08-30T11:31:30.466869,NEW_SERIES_PARETO_ppo_20trials_250830_113130,,,,,,,
+2025-08-30T11:36:33,PARETO_ppo_20trials_250830_113130,trial_018,pareto,ppo,0.0160,0.3962,0.0041,"{""erl"": {""learning_rate"": 1.3204392685000274e-05, ""batch_size"": 1024, ""gamma"": 0.9954379276836015, ""net_dimension"": 512, ""net_dims"": [256, 256], ""target_step"": 8192, ""horizon_len"": 2048, ""repeat_times"": 2.0, ""buffer_size"": 1000000, ""buffer_init_size"": 2048, ""eval_gap"": 64, ""eval_times"": 16}}"

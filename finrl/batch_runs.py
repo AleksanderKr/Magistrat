@@ -5,16 +5,21 @@ from openpyxl import load_workbook
 
 from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
 from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
+from finrl.meta.env_stock_trading.env_intraday_np_train import IntradayTradingTrainEnv
+from finrl.meta.env_stock_trading.env_intraday_np_test  import IntradayTradingTestEnv
 from finrl.train import train
 from finrl.test  import test
 from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 from finrl.config_tickers import DOW_30_TICKER
 from finrl.config import INDICATORS, TRAIN_START_DATE, TRAIN_END_DATE, TEST_START_DATE, TEST_END_DATE
+from finrl.config import INTRA_TRAIN_START, INTRA_TRAIN_END, INTRA_TEST_START, INTRA_TEST_END
 
 """
-python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_safeEnv
-
+python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_dailyBull --envset daily
+python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_dailyBear --envset daily
+python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_intraday --envset intraday
 """
+
 ERL_FIXED_PARAMS = {
     "learning_rate":    8.772259590429399e-04,
     "batch_size":       512,
@@ -63,11 +68,33 @@ def append_log(row: dict) -> None:
     else:
         df_new.to_excel(LOG_FILE, index=False)
 
+def _pick_env_and_dates(envset: str):
+    if envset == "intraday":
+        env_train = IntradayTradingTrainEnv
+        env_test  = IntradayTradingTestEnv
+        interval  = "1m"
 
-def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str):
+        s_train = INTRA_TRAIN_START
+        e_train = INTRA_TRAIN_END
+        s_test  = INTRA_TEST_START
+        e_test  = INTRA_TEST_END
+    else:
+        env_train = DailyTradingTrainEnv
+        env_test  = DailyTradingTestEnv
+        interval  = "1d"
+
+        s_train = TRAIN_START_DATE
+        e_train = TRAIN_END_DATE
+        s_test  = TEST_START_DATE
+        e_test  = TEST_END_DATE
+
+    return env_train, env_test, interval, s_train, e_train, s_test, e_test
+
+def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str, envset: str):
     erl_params = ERL_FIXED_PARAMS.copy()
     erl_params["seed"] += run_idx
 
+    env_train, env_test, interval, s_train, e_train, s_test, e_test = _pick_env_and_dates(envset)
     cwd = os.path.join(series_dir, f"trial_{run_idx:03d}")
     os.makedirs(cwd, exist_ok=True)
 
@@ -75,18 +102,18 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str):
         json.dump({"erl": erl_params}, f, indent=2)
 
     train(
-        start_date=TRAIN_START_DATE, end_date=TRAIN_END_DATE,
+        start_date=s_train, end_date=e_train,
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
-        time_interval="1D", technical_indicator_list=INDICATORS,
-        drl_lib="elegantrl", env=DailyTradingTrainEnv, model_name=model_name,
+        time_interval=interval, technical_indicator_list=INDICATORS,
+        drl_lib="elegantrl", env=env_train, model_name=model_name,
         cwd=cwd, erl_params=erl_params, break_step=BREAK_STEP
     )
 
     assets, sharpe, cagr, agent_vs_bnh = test(
-        start_date=TEST_START_DATE, end_date=TEST_END_DATE,
+        start_date=s_test, end_date=e_test,
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
-        time_interval="1D", technical_indicator_list=INDICATORS,
-        drl_lib="elegantrl", env=DailyTradingTestEnv, model_name=model_name,
+        time_interval=interval, technical_indicator_list=INDICATORS,
+        drl_lib="elegantrl", env=env_test, model_name=model_name,
         cwd=cwd, net_dimension=erl_params["net_dimension"]
     )
     ret = assets[-1] / assets[0] - 1
@@ -117,9 +144,12 @@ if __name__ == "__main__":
     parser.add_argument("--runs",  type=int, default=10)
     parser.add_argument("--model", default="sac")
     parser.add_argument("--note", default="trade", help="Series description")
+    parser.add_argument("--envset", choices=["daily", "intraday"], default="daily",
+                        help="daily = 1d env, intraday = 1m env")
+
     args = parser.parse_args()
 
-    series_tag = f"FIXED_{args.model}_{args.runs}runs_{args.note}"
+    series_tag = f"FIXED_{args.model}_{args.envset}_{args.runs}runs_{args.note}"
     series_dir = os.path.join("fixed_runs", series_tag)
     os.makedirs(series_dir, exist_ok=True)
     init_log(series_tag)

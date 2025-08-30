@@ -8,8 +8,8 @@ Modes
 
 Usage examples
 --------------
-python -m finrl.optuna_tune --trials 20 --mode single --model ddpg
-python -m finrl.optuna_tune --trials 20 --mode pareto  --model ppo
+python -m finrl.optuna_tune --trials 20 --mode single --model ddpg --envset daily
+python -m finrl.optuna_tune --trials 20 --mode pareto --model sac --envset intraday
 
 All runs are logged to ``optuna_log.csv`` and the best checkpoints are kept
 in ``optuna_runs/<trial_id>``.
@@ -27,20 +27,21 @@ from optuna.samplers import NSGAIISampler
 
 from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
 from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
+from finrl.meta.env_stock_trading.env_intraday_np_train import IntradayTradingTrainEnv
+from finrl.meta.env_stock_trading.env_intraday_np_test import IntradayTradingTestEnv
 from finrl.train import train
 from finrl.test import test
-from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 from finrl.config_tickers import DOW_30_TICKER
 from finrl.config import (
     INDICATORS,
     TRAIN_START_DATE,
     TRAIN_END_DATE,
     VALIDATION_START_DATE,
-    VALIDATION_END_DATE,
+    VALIDATION_END_DATE, INTRA_TRAIN_START, INTRA_TRAIN_END, INTRA_VAL_START, INTRA_VAL_END,
 )
 
 # ───────────────────────────── logging ──────────────────────────────
-LOG_FILE = "optuna_log_second_pareto_ddpg.csv"
+LOG_FILE = "optuna_test_intraday.csv"
 TOP_K = 5                           # keep only top‑K checkpoints
 best_runs: List[Tuple[float, float, str]] = []  # (return, sharpe, path)
 
@@ -115,7 +116,7 @@ def sample_erl_params(trial) -> dict:
 
 # ───────────────────────── one Optuna trial ───────────────────────
 
-def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: str):
+def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: str, envset: str):
     """Run a single trial.
 
     Returns
@@ -123,6 +124,23 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
     single → float   (return)
     pareto → tuple   (return, sharpe)
     """
+    if envset == "intraday":
+        env_train = IntradayTradingTrainEnv
+        env_test  = IntradayTradingTestEnv
+        sdate = INTRA_TRAIN_START
+        edate = INTRA_TRAIN_END
+        svdate = INTRA_VAL_START
+        evdate = INTRA_VAL_END
+        interval  = "1m"
+    else:
+        env_train = DailyTradingTrainEnv
+        env_test  = DailyTradingTestEnv
+        sdate = TRAIN_START_DATE
+        edate = TRAIN_END_DATE
+        svdate = VALIDATION_START_DATE
+        evdate = VALIDATION_END_DATE
+        interval  = "1d"
+
     erl_params = sample_erl_params(trial)
 
     run_id = f"trial_{trial.number:03d}"
@@ -133,14 +151,14 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
 
     # ─── train ───
     train(
-        start_date=TRAIN_START_DATE,
-        end_date=TRAIN_END_DATE,
+        start_date=sdate,
+        end_date=edate,
         ticker_list=DOW_30_TICKER,
         data_source="yahoofinance",
-        time_interval="1D",
+        time_interval=interval,
         technical_indicator_list=INDICATORS,
         drl_lib="elegantrl",
-        env=DailyTradingTrainEnv,
+        env=env_train,
         model_name=model_name,
         cwd=cwd,
         erl_params=erl_params,
@@ -149,14 +167,14 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
 
     # ─── evaluate ───
     assets, sharpe, cagr, agent_vs_bnh = test(
-        start_date=VALIDATION_START_DATE,
-        end_date=VALIDATION_END_DATE,
+        start_date=svdate,
+        end_date=evdate,
         ticker_list=DOW_30_TICKER,
         data_source="yahoofinance",
-        time_interval="1D",
+        time_interval=interval,
         technical_indicator_list=INDICATORS,
         drl_lib="elegantrl",
-        env=DailyTradingTestEnv,
+        env=env_test,
         model_name=model_name,
         cwd=cwd,
         net_dimension=erl_params["net_dimension"],
@@ -207,10 +225,16 @@ if __name__ == "__main__":
         default="ddpg",
         help="ElegantRL model name (ddpg, td3, ppo, sac)",
     )
+    parser.add_argument(
+        "--envset",
+        choices=["daily", "intraday"],
+        default="daily",
+        help="Choose env: daily = 1d, intraday = 1m"
+    )
     args = parser.parse_args()
 
     # new study & folder
-    series_tag = f"{args.mode.upper()}_{args.model}_{args.trials}trials_" \
+    series_tag = f"{args.mode.upper()}_{args.model}_{args.envset}_{args.trials}trials_" \
                  f"{datetime.datetime.now():%y%m%d_%H%M%S}"
     series_dir = os.path.join("optuna_runs", series_tag)
     os.makedirs(series_dir, exist_ok=True)
@@ -219,7 +243,7 @@ if __name__ == "__main__":
 
     SEED = 312
     if args.mode == "single":
-        study_name = f"finrl_single_second_{args.model}"
+        study_name = f"finrl_single_second_{args.model}_{args.envset}"
         #study_name = f"finrl_Second_single_sac_SINGLE_sac_20trials_250729_082359"
         study = optuna.create_study(
             study_name=study_name,
@@ -229,7 +253,7 @@ if __name__ == "__main__":
             load_if_exists=True,
         )
     else:
-        study_name = f"finrl_pareto_second_{args.model}"
+        study_name = f"finrl_pareto_second_{args.model}_{args.envset}"
         study = optuna.create_study(
             study_name=study_name,
             storage="sqlite:///optuna_finrl.db",
@@ -239,7 +263,7 @@ if __name__ == "__main__":
         )
 
     study.optimize(
-        lambda t: run_trial(t, args.mode, args.model, series_tag, series_dir),
+        lambda t: run_trial(t, args.mode, args.model, series_tag, series_dir, args.envset),
         n_trials=args.trials,
     )
 
