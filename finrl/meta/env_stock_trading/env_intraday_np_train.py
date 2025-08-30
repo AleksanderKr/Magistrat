@@ -77,8 +77,6 @@ class IntradayTradingTrainEnv(gym.Env):
 
         self.start_day = 0
         self.end_day = self.start_day + max(self.ep_len, 1) - 1
-        self.start_day = 0
-        self.end_day = self.start_day + max(self.ep_len, 1) - 1
 
         self.if_discrete = False
         self.target_return = 10.0
@@ -100,12 +98,9 @@ class IntradayTradingTrainEnv(gym.Env):
         sess_id = int(rd.randint(0, self.num_sessions))
         base = sess_id * self.ep_len
 
-        wu = max(0, int(self.warmup_lookback))
-        wu = min(wu, max(0, self.ep_len - 1))
-
+        wu = max(0, min(self.warmup_lookback, self.ep_len - 2))
         self.start_day = base + wu
-        self.end_day = base + self.ep_len - 1
-
+        self.end_day = base + self.ep_len - 1  # inclusive
         self.day = self.start_day
 
         price = self.price_ary[self.day]
@@ -125,6 +120,8 @@ class IntradayTradingTrainEnv(gym.Env):
         actions = (actions * self.max_stock).astype(int)
 
         self.day += 1
+        if self.day > self.end_day:
+            self.day = self.end_day
         price = self.price_ary[self.day]
 
         self.stocks_cool_down += 1

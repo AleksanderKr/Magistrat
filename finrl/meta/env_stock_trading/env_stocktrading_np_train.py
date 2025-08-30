@@ -66,8 +66,8 @@ class DailyTradingTrainEnv(gym.Env):
         self.action_dim = stock_dim
         self.max_step = self.price_ary.shape[0] - 1
         self.if_train = if_train
-
         self.ep_len = int(config.get("ep_len", 252))
+        self.warmup_lookback = int(config.get("warmup_lookback", 252))
         self._last_valid_start = max(0, self.max_step - self.ep_len)
         self.start_day = 0
         self.end_day = self.start_day + self.ep_len - 1
@@ -89,14 +89,14 @@ class DailyTradingTrainEnv(gym.Env):
         seed=None,
         options=None,
     ):
-        warmup_lookback = 252
-        self.start_day = int(rd.randint(warmup_lookback, self._last_valid_start + 1))
-        self.end_day = self.start_day + self.ep_len
+        start_min = int(self.warmup_lookback)
+        start_max = int(self._last_valid_start)
+        self.start_day = int(rd.randint(start_min, start_max + 1))
+        self.end_day = self.start_day + self.ep_len - 1  # inclusive
         self.day = self.start_day
 
         price = self.price_ary[self.day]
 
-        # --- stałe warunki początkowe ---
         self.stocks = np.zeros_like(self.initial_stocks, dtype=np.float32)
         self.stocks_cool_down = np.zeros_like(self.stocks)
         self.amount = float(self.initial_capital)
@@ -111,6 +111,8 @@ class DailyTradingTrainEnv(gym.Env):
         actions = (actions * self.max_stock).astype(int)
 
         self.day += 1
+        if self.day > self.end_day:
+            self.day = self.end_day
         if self.day > self.max_step:
             self.day = self.max_step
         price = self.price_ary[self.day]

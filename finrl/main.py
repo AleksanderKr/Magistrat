@@ -157,8 +157,8 @@ def main() -> int:
 
 
 # Users can input the following command in terminal
-# python -m finrl.main --mode=train
-# python main.py --mode=test
-# python main.py --mode=trade
+""""
+python -m finrl.main --mode=train
+"""
 if __name__ == "__main__":
     raise SystemExit(main())
