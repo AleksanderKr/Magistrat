@@ -74,7 +74,7 @@ def main() -> int:
     if options.mode == "train":
         from finrl import train
 
-        #env = IntradayTradingTrainEnv
+        #env = DailyTradingTrainEnv
         env = StockPortfolioEnv
 
         # demo for elegantrl
@@ -94,7 +94,7 @@ def main() -> int:
             drl_lib="elegantrl",
             env=env,
             model_name="ppo",
-            cwd="./test_ppo",
+            cwd=f"./test_ppo",
             erl_params=ERL_TMP_PARAMS,
             break_step=3e5,
             kwargs=kwargs,
@@ -102,6 +102,7 @@ def main() -> int:
     elif options.mode == "test":
         from finrl import test
 
+        #env = DailyTradingTestEnv
         env = StockPortfolioEnv
 
         # demo for elegantrl
@@ -122,7 +123,7 @@ def main() -> int:
             env=env,
             model_name="ppo",
             cwd="./test_ppo",
-            net_dimension=512,
+            #net_dimension=512,
             kwargs=kwargs,
         )
     elif options.mode == "trade":

@@ -87,11 +87,15 @@ class DRLAgent:
             merged_env_args = {
                 **self.env_args,
                 "env_name": env.__name__,
-                "state_dim": portfolio_state_dim if env.__name__ == "StockPortfolioEnv" else trading_state_dim,
-                "action_dim": action_dim,
-                "if_discrete": False,
-                "max_step": max_step,
+                "state_dim": self.env_args.get(
+                    "state_dim",
+                    portfolio_state_dim if env.__name__ == "StockPortfolioEnv" else trading_state_dim,
+                ),
+                "action_dim": self.env_args.get("action_dim", action_dim),
+                "if_discrete": self.env_args.get("if_discrete", False),
+                "max_step": int(self.env_args.get("max_step", max_step)),
             }
+
             self.env_args = merged_env_args
             self.state_dim = self.env_args["state_dim"]
             self.action_dim = action_dim
@@ -147,16 +151,18 @@ class DRLAgent:
             state_dim = getattr(env, "state_dim", None) or env.observation_space.shape[0]
         except Exception:
             stock_dim_fb = env_args["price_array"].shape[1]
-            state_dim = 1 + 2 + 3 * stock_dim_fb + env_args["tech_array"].shape[1]
-
+            state_dim = env_args.get("state_dim", 1 + 2 + 3 * stock_dim_fb + env_args["tech_array"].shape[1])
         try:
             action_dim = getattr(env, "action_dim", None) or env.action_space.shape[0]
         except Exception:
-            action_dim = env_args["price_array"].shape[1]
+            action_dim = env_args.get("action_dim", env_args["price_array"].shape[1])
 
         if_discrete = getattr(env, "if_discrete", False)
-        max_step = int(getattr(env, "max_step", 0)) or int(env_args["price_array"].shape[0] - 1)
-
+        max_step = (
+                int(getattr(env, "max_step", 0))
+                or int(env_args.get("max_step", 0))
+                or int(env_args["price_array"].shape[0] - 1)
+        )
         actor_path = f"{cwd}/act.pth"
 
         loaded = torch.load(actor_path, weights_only=False)
@@ -181,6 +187,7 @@ class DRLAgent:
             act = agent_class(net_dims, state_dim, action_dim, gpu_id=0, args=args).act
             state_dict = loaded if isinstance(loaded, dict) else loaded.state_dict()
             act.load_state_dict(state_dict, strict=False)
+        act.eval()
 
         device = next(act.parameters()).device
 

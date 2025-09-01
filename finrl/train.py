@@ -47,17 +47,20 @@ def train(
     ep_len = int((env_extra or {}).get("ep_len", 390 if intraday else 252))
     warmup = int((env_extra or {}).get("warmup_lookback", 60 if intraday else 20))
     if_train_flag = bool((env_extra or {}).get("if_train", True))
-    if "cov_list" not in data.columns:
+    use_portfolio = (getattr(env, "__name__", "") == "StockPortfolioEnv") or bool(
+        (env_extra or {}).get("use_portfolio_env", False))
+
+    if use_portfolio:
         lb_default = warmup if intraday else default_lookback
         lookback = int((env_extra or {}).get("lookback", lb_default))
-        data = dp.add_covariance_matrix(data, lookback=lookback)
+        if "cov_list" not in data.columns:
+            data = dp.add_covariance_matrix(data, lookback=lookback)
 
         stock_dim = len(ticker_list)
         action_dim = stock_dim
         state_space = stock_dim
 
-        env = StockPortfolioEnv
-
+        # UWAGA: tu NIE nadpisujemy 'env' — trenujesz to, co podałeś (StockPortfolioEnv, jeśli tak wywołasz)
         env_args = dict(
             df=data,
             stock_dim=stock_dim,
@@ -69,21 +72,24 @@ def train(
             action_space=(env_extra or {}).get("action_space", action_dim),
             tech_indicator_list=technical_indicator_list,
             turbulence_threshold=(env_extra or {}).get("turbulence_threshold", None),
-            lookback=(env_extra or {}).get("lookback", warmup if intraday else 252),
+            lookback=lookback,
             day=(env_extra or {}).get("day", 0),
             rebalance_every=(env_extra or {}).get("rebalance_every", default_rebal),
             ep_len=ep_len,
             warmup_lookback=warmup,
-            if_train=if_train_flag,
+            if_train=True,
             max_step=ep_len - 1,
         )
     else:
+        # klasyczny trading env (Intraday/Daily) – bez przełączania na portfolio
         env_args = {
             "config": {
                 "price_array": price_array,
                 "tech_array": tech_array,
                 "turbulence_array": turbulence_array,
                 "if_train": True,
+                "ep_len": ep_len,
+                "warmup_lookback": warmup,
                 **SHARPE_PARAMS,
                 **(env_extra or {}),
             }

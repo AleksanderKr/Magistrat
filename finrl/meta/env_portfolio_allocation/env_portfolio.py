@@ -112,7 +112,10 @@ class StockPortfolioEnv(gym.Env):
             )
             if "step" not in self.df.columns:
                 self.df["step"] = pd.factorize(pd.to_datetime(self.df[time_col]))[0].astype(int)
-            self.df = self.df.set_index("step"); self.granularity = "intraday" if "timestamp" in self.df.columns else "daily"
+            self.df = self.df.set_index("step")
+
+        if not hasattr(self, "granularity"):
+            self.granularity = "intraday" if "timestamp" in self.df.columns else "daily"
 
         # Cache episode length and max_step (used by evaluator / prediction)
         self.n_steps = int(self.df.index.nunique())
@@ -124,6 +127,9 @@ class StockPortfolioEnv(gym.Env):
         # covariance matrix + technical indicators
         obs_dim = self.stock_dim * (self.stock_dim + len(self.tech_indicator_list))
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+        self.env_name = "StockPortfolioEnv"
+        self.state_dim = obs_dim
+        self.if_discrete = False
 
         # load data from a pandas dataframe
         self.data = self.df.loc[self.day, :]
@@ -302,11 +308,9 @@ class StockPortfolioEnv(gym.Env):
 
         base_start = int(self._session_starts[base_idx])
         self.start_step = base_start + self.warmup
-        self.end_step = self.start_step + self.ep_len - 1
-
+        self.end_step = min(self.start_step + self.ep_len - 1, self.n_steps - 1)
         self.day = self.start_step
         self.max_step = self.end_step
-
         self.asset_memory = [self.initial_amount]
         self.data = self.df.loc[self.day, :]
 
@@ -322,6 +326,8 @@ class StockPortfolioEnv(gym.Env):
         self.portfolio_return_memory = [0]
         self.actions_memory = [[1 / self.stock_dim] * self.stock_dim]
         self.date_memory = [self._current_time_label()]
+
+        self.reward = 0.0
         return self.state, {}
 
     def render(self, mode="human"):

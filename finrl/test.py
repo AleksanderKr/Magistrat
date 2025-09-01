@@ -134,25 +134,34 @@ def test(
         env_instance.max_step = int(getattr(env_instance, "warmup", 0) + env_instance.ep_len - 1)
 
         env_args_erl = dict(
-            env_name="StockPortfolioEnv",
-            state_dim=stock_dim * (stock_dim + tech_dim),
-            action_dim=action_dim,
+            env_name=getattr(env_instance, "env_name", "StockPortfolioEnv"),
+            state_dim=getattr(env_instance, "state_dim"),
+            action_dim=getattr(env_instance, "action_dim"),
             if_discrete=False,
-            max_step=min(max_step_idx, 12345),
+            max_step=getattr(env_instance, "max_step", int(data.index.nunique() - 1)),
             price_array=price_array,
             tech_array=tech_array,
             turbulence_array=turbulence_array,
         )
     else:
-        env_args = {
+        env_config = {
             "price_array": price_array,
             "tech_array": tech_array,
             "turbulence_array": turbulence_array,
+            "if_train": False,
+            **SHARPE_PARAMS,
         }
-        env_config = {**env_args, "if_train": False, **SHARPE_PARAMS}
         env_instance = env(config=env_config)
-        env_args_erl = env_args
-
+        env_args_erl = dict(
+            env_name=getattr(env_instance, "env_name", "StockEnv"),
+            state_dim=getattr(env_instance, "state_dim"),
+            action_dim=getattr(env_instance, "action_dim"),
+            if_discrete=False,
+            max_step=getattr(env_instance, "max_step"),
+            price_array=price_array,
+            tech_array=tech_array,
+            turbulence_array=turbulence_array,
+        )
     # load elegantrl needs state dim, action dim and net dim
     net_dimension = kwargs.get("net_dimension", 2**7)
     cwd = kwargs.get("cwd", "./" + str(model_name))
