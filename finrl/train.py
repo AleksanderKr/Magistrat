@@ -13,6 +13,9 @@ from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 
 # construct environment
 
+def _is_intraday(interval: str) -> bool:
+    s = (interval or "").lower()
+    return s.endswith("m") or s.endswith("min")
 
 def train(
     start_date,
@@ -36,9 +39,18 @@ def train(
     if if_vix:
         data = dp.add_vix(data)
     price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
-    if getattr(env, "__name__", "") == "StockPortfolioEnv":
-        if not {"cov_list"}.issubset(set(data.columns)):
-            data = dp.add_covariance_matrix(data, lookback=int((env_extra or {}).get("lookback", 252)))
+    intraday = _is_intraday(time_interval)
+    default_lookback = 390 if intraday else 252  # 1 session vs 1y of days
+    default_reward = 2000.0 if intraday else 100.0  # stronger signal for minute bars
+    default_tc = 1e-3  # 0.1% per traded notional
+    default_rebal = 5 if intraday else 1  # rebalance every 5 min vs every step
+    ep_len = int((env_extra or {}).get("ep_len", 390 if intraday else 252))
+    warmup = int((env_extra or {}).get("warmup_lookback", 60 if intraday else 20))
+    if_train_flag = bool((env_extra or {}).get("if_train", True))
+    if "cov_list" not in data.columns:
+        lb_default = warmup if intraday else default_lookback
+        lookback = int((env_extra or {}).get("lookback", lb_default))
+        data = dp.add_covariance_matrix(data, lookback=lookback)
 
         stock_dim = len(ticker_list)
         action_dim = stock_dim
@@ -46,22 +58,24 @@ def train(
 
         env = StockPortfolioEnv
 
-        max_step_days = int(data["day"].nunique() - 1) if "day" in data.columns else int(
-            data["timestamp"].dt.date.nunique() - 1)
         env_args = dict(
             df=data,
             stock_dim=stock_dim,
             hmax=(env_extra or {}).get("hmax", 100),
             initial_amount=(env_extra or {}).get("initial_amount", 1e6),
-            transaction_cost_pct=(env_extra or {}).get("transaction_cost_pct", 1e-3),
-            reward_scaling=(env_extra or {}).get("reward_scaling", 100),
+            transaction_cost_pct=(env_extra or {}).get("transaction_cost_pct", default_tc),
+            reward_scaling=(env_extra or {}).get("reward_scaling", default_reward),
             state_space=(env_extra or {}).get("state_space", state_space),
             action_space=(env_extra or {}).get("action_space", action_dim),
             tech_indicator_list=technical_indicator_list,
             turbulence_threshold=(env_extra or {}).get("turbulence_threshold", None),
-            lookback=(env_extra or {}).get("lookback", 252),
+            lookback=(env_extra or {}).get("lookback", warmup if intraday else 252),
             day=(env_extra or {}).get("day", 0),
-            max_step=min(max_step_days, 12345),
+            rebalance_every=(env_extra or {}).get("rebalance_every", default_rebal),
+            ep_len=ep_len,
+            warmup_lookback=warmup,
+            if_train=if_train_flag,
+            max_step=ep_len - 1,
         )
     else:
         env_args = {

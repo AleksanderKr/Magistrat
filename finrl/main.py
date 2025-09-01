@@ -82,14 +82,14 @@ def main() -> int:
             {}
         )  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
         train(
-            #start_date=INTRA_TRAIN_START,
-            start_date=TRAIN_START_DATE,
-            #end_date=INTRA_TRAIN_END,
-            end_date=TRAIN_END_DATE,
+            start_date=INTRA_TRAIN_START,
+            #start_date=TRAIN_START_DATE,
+            end_date=INTRA_TRAIN_END,
+            #end_date=TRAIN_END_DATE,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
-            #time_interval="1m",
-            time_interval="1d",
+            #time_interval="1d",
+            time_interval="1m",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
@@ -109,11 +109,14 @@ def main() -> int:
         kwargs = {}
 
         account_value_erl = test(  # noqa
-            start_date=VALIDATION_START_DATE,
-            end_date=VALIDATION_END_DATE,
+            start_date=INTRA_VAL_START,
+            #start_date=VALIDATION_START_DATE,
+            end_date=INTRA_VAL_END,
+            #end_date=VALIDATION_END_DATE,
             ticker_list=DOW_30_TICKER,
             data_source="yahoofinance",
-            time_interval="1d",
+            time_interval="1m",
+            #time_interval="1d",
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,

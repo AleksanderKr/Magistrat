@@ -19,31 +19,38 @@ import pandas as pd
 import matplotlib.ticker as mtick
 import matplotlib.pyplot as plt
 
+def _is_intraday(interval: str) -> bool:
+    s = (interval or "").lower()
+    return s.endswith("m") or s.endswith("min")
+
 def save_equity_curve(agent_curve: np.ndarray,
                       ref_curve: np.ndarray,
                       path: str,
-                      start_date: str = "2020-07-01" ) -> None:
+                      start_date: str = "2020-07-01",
+                      intraday: bool = False) -> None:
 
     norm_agent = agent_curve / agent_curve[0]
     norm_ref   = ref_curve  / ref_curve[0]
 
     n = len(norm_agent)
-    x_vals = pd.bdate_range(start=start_date, periods=n)
+    x_vals = np.arange(n) if intraday else pd.bdate_range(start=start_date, periods=n)
 
     fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
     ax.plot(x_vals, norm_agent, label="Agent", linewidth=1.6)
     ax.plot(x_vals, norm_ref,   label="Buy & Hold", linewidth=1.4, linestyle="--")
 
-    ax.set_xlabel("Date")
+    ax.set_xlabel("Step" if intraday else "Date")
     ax.set_ylabel("Cumulative return")
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
     ax.grid(True, which="major", linestyle="--", alpha=0.6)
     ax.legend()
-    ax.set_xlim(x_vals[0], x_vals[-1])
-    fig.autofmt_xdate()
+    if not intraday:
+        ax.set_xlim(x_vals[0], x_vals[-1])
+        fig.autofmt_xdate()
     plt.tight_layout()
     plt.savefig(path, bbox_inches="tight")
     plt.close(fig)
+
 
 
 def test(
@@ -72,22 +79,26 @@ def test(
     if if_vix:
         data = dp.add_vix(data)
     price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
+    intraday = _is_intraday(time_interval)
+    default_lookback = 390 if intraday else 252  # 1 session vs ~1 year of days
+    default_reward = 2000.0 if intraday else 100.0  # stronger signal for minute bars
+    default_tc = 1e-3  # 0.1% per traded notional
+    default_rebal = 5 if intraday else 1  # rebalance every 5 min vs every step
 
     env_args = {
         "price_array": price_array,
         "tech_array": tech_array,
         "turbulence_array": turbulence_array,
     }
-
     env_config = {
         **env_args,
         "if_train": False,
         **SHARPE_PARAMS
     }
     if getattr(env, "__name__", "") == "StockPortfolioEnv":
+        lookback_val = int((env_extra or {}).get("lookback", default_lookback))
         if "cov_list" not in data.columns:
-            lookback = int((env_extra or {}).get("lookback", 252))
-            data = dp.add_covariance_matrix(data, lookback=lookback)
+            data = dp.add_covariance_matrix(data, lookback=lookback_val)
             assert "cov_list" in data.columns, "add_covariance_matrix() did not add 'cov_list'"
 
         stock_dim = len(ticker_list)
@@ -95,33 +106,39 @@ def test(
         tech_dim = len(technical_indicator_list)
         state_space = stock_dim
 
-        max_step_days = int(data["day"].nunique()) if "day" in data.columns else int(
-            data["timestamp"].dt.date.nunique()
-        )
+        # number of simulation steps (works for both daily and intraday)
+        max_step_idx = int(data.index.nunique() - 1)
 
         env_instance = StockPortfolioEnv(
             df=data,
             stock_dim=stock_dim,
             hmax=(env_extra or {}).get("hmax", 100),
             initial_amount=(env_extra or {}).get("initial_amount", 1e6),
-            transaction_cost_pct=(env_extra or {}).get("transaction_cost_pct", 1e-3),
-            reward_scaling=(env_extra or {}).get("reward_scaling", 100.0),
+            transaction_cost_pct=(env_extra or {}).get("transaction_cost_pct", default_tc),
+            reward_scaling=(env_extra or {}).get("reward_scaling", (2 ** -9) if intraday else 1.0),
             state_space=state_space,
             action_space=action_dim,
             tech_indicator_list=technical_indicator_list,
             turbulence_threshold=(env_extra or {}).get("turbulence_threshold", None),
-            lookback=(env_extra or {}).get("lookback", 252),
+            lookback=lookback_val,
             day=(env_extra or {}).get("day", 0),
+            rebalance_every=(env_extra or {}).get("rebalance_every", default_rebal),
+            ep_len=int((env_extra or {}).get("ep_len", 390 if intraday else 252)),
+            warmup_lookback=int((env_extra or {}).get("warmup_lookback", 60 if intraday else 20)),
+            if_train=False,
         )
-
-        env_instance.max_step = min(max_step_days, 12345)
+        env_instance.if_train = False
+        if not hasattr(env_instance, "_session_starts"): env_instance._build_sessions()
+        env_instance._session_starts = np.asarray([0], dtype=int)
+        env_instance.ep_len = int(max_step_idx + 1 - max(0, getattr(env_instance, "warmup", 0)))
+        env_instance.max_step = int(getattr(env_instance, "warmup", 0) + env_instance.ep_len - 1)
 
         env_args_erl = dict(
             env_name="StockPortfolioEnv",
             state_dim=stock_dim * (stock_dim + tech_dim),
             action_dim=action_dim,
             if_discrete=False,
-            max_step=min(max_step_days, 12345),
+            max_step=min(max_step_idx, 12345),
             price_array=price_array,
             tech_array=tech_array,
             turbulence_array=turbulence_array,
@@ -166,16 +183,17 @@ def test(
 
         # ---------- Agent  ----------
         daily_ret = np.diff(assets) / assets[:-1]
-        ann_vol = daily_ret.std(ddof=0) * np.sqrt(252)
-        cagr = (assets[-1] / assets[0]) ** (252 / len(daily_ret)) - 1
+        steps_per_year = 252 if not intraday else int(
+            252 * max(1, 390 // int(getattr(env_instance, "rebalance_every", 1))))
+        ann_vol = daily_ret.std(ddof=0) * np.sqrt(steps_per_year)
+        cagr = (assets[-1] / assets[0]) ** (steps_per_year / max(1, len(daily_ret))) - 1
         max_dd = (assets / np.maximum.accumulate(assets) - 1).min()
         rf = 0.0
-        sharpe = (daily_ret.mean() - rf / 252) / daily_ret.std(ddof=1) * np.sqrt(252) if daily_ret.std(
-            ddof=1) > 0 else np.nan
+        sharpe = (daily_ret.mean() - rf / steps_per_year) / daily_ret.std(ddof=1) * np.sqrt(steps_per_year) if daily_ret.std(ddof=1) > 0 else np.nan
 
         # ----------  BnH ----------
         bnh_daily_ret = np.diff(bnh_curve) / bnh_curve[:-1]
-        bnh_ann_vol = bnh_daily_ret.std(ddof=0) * np.sqrt(252)
+        bnh_ann_vol = bnh_daily_ret.std(ddof=0) * np.sqrt(steps_per_year)
         bnh_max_dd = (bnh_curve / np.maximum.accumulate(bnh_curve) - 1).min()
 
         alpha_pct = assets[-1] / (assets[0] * bnh_return) - 1
@@ -197,7 +215,8 @@ def test(
             agent_curve=assets,
             ref_curve=bnh_curve,
             path=os.path.join(cwd, "EquityCurve.jpg"),
-            start_date=TEST_START_DATE
+            start_date=TEST_START_DATE,
+            intraday=intraday
         )
 
         return episode_total_assets, (cagr / ann_vol if ann_vol else np.nan), cagr, alpha_pct

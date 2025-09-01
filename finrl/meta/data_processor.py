@@ -87,39 +87,79 @@ class DataProcessor:
         return price_array, tech_array, turbulence_array
 
     def add_covariance_matrix(self, df: pd.DataFrame, lookback: int = 252) -> pd.DataFrame:
+        """
+        Attach a rolling cross-sectional covariance matrix per time step.
+
+        Works for both daily and intraday data:
+        - prefers 'timestamp' if present, otherwise uses 'date'
+        - deduplicates (time, tic) pairs and uses pivot_table with aggfunc='last'
+        - computes returns by pct_change over time steps
+        - builds a dict time -> covariance(matrix) over a rolling window of length 'lookback'
+        - maps 'cov_list' back to the long dataframe
+        - creates 'date' (calendar date), 'day' (factorized), and 'step' (time-step id)
+        - sets index to 'step' so env can iterate 0..N-1 through time steps
+        """
         data = df.copy()
 
-        if "date" not in data.columns:
-            if "timestamp" not in data.columns:
-                raise ValueError("add_covariance_matrix: requires 'timestamp' or 'date' column.")
-            data["date"] = pd.to_datetime(data["timestamp"]).dt.date
+        # choose the time column: intraday uses 'timestamp' (datetime), daily may only have 'date'
+        time_col = "timestamp" if "timestamp" in data.columns else "date"
+        if time_col not in data.columns:
+            raise ValueError("add_covariance_matrix: requires 'timestamp' or 'date' column.")
 
-        price_pivot = (
-            data.pivot(index="date", columns="tic", values="close")
+        # ensure datetime dtype for time column
+        data[time_col] = pd.to_datetime(data[time_col])
+
+        # create a pure calendar date column for compatibility with env (date_memory etc.)
+        data["date"] = data[time_col].dt.date
+
+        # order and deduplicate (time, tic); keep the last seen price per time step
+        data = (
+            data.sort_values([time_col, "tic"])
+            .drop_duplicates([time_col, "tic"], keep="last")
+            .reset_index(drop=True)
+        )
+
+        # wide price matrix over time steps
+        wide = (
+            data.pivot_table(index=time_col, columns="tic", values="close", aggfunc="last")
             .sort_index()
         )
-        returns = price_pivot.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-        dates = returns.index.to_list()
-        cov_list = []
-        n_assets = len(price_pivot.columns)
+        # forward-fill missing prices across time (e.g., listing gaps or illiquid tics)
+        wide = wide.ffill()
 
-        for i in range(len(dates)):
+        # returns per step; use pct_change so env logic based on relative moves stays consistent
+        rets = wide.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+        # build rolling covariance dictionary time -> cov matrix (assets x assets)
+        times = rets.index.to_list()
+        n_assets = wide.shape[1]
+        cov_map = {}
+
+        for i, t in enumerate(times):
             start = max(0, i - lookback + 1)
-            window = returns.iloc[start:i+1]
+            window = rets.iloc[start: i + 1]
             if window.shape[0] < 2:
                 cov = np.eye(n_assets, dtype=float)
             else:
                 cov = np.cov(window.values.T)
-                if np.isnan(cov).any() or np.isinf(cov).any():
+                if not np.isfinite(cov).all():
                     cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
-            cov_list.append(cov)
+            cov_map[t] = cov
 
-        cov_df = pd.DataFrame({"date": dates, "cov_list": cov_list})
-        out = data.merge(cov_df, on="date", how="left").sort_values(["timestamp", "tic"])
+        # attach cov_list back to the long dataframe via full time column
+        data["cov_list"] = data[time_col].map(cov_map)
 
-        out["day"] = pd.factorize(out["date"])[0]  # 0,1,2,...
-        out = out.set_index("day")
+        # build ids:
+        # - 'day' = factorized calendar date (0,1,2,...)
+        # - 'step' = factorized full timestamp/time (0..N-1), used as index for stepping
+        data["day"] = pd.factorize(data["date"])[0].astype(int)
+        unique_times = pd.Index(times)
+        step_id_map = pd.Series(index=unique_times, data=np.arange(len(unique_times), dtype=int))
+        data["step"] = data[time_col].map(step_id_map).astype(int)
+
+        # final sort and index = 'step' so env.loc[self.day, :] fetches all tics for that time step
+        out = data.sort_values([time_col, "tic"]).set_index("step")
 
         return out
 
