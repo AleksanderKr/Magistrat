@@ -93,8 +93,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ppo",
-            cwd=f"./test_ppo",
+            model_name="dqn",
+            cwd=f"./test_dqn",
             erl_params=ERL_TMP_PARAMS,
             break_step=3e5,
             kwargs=kwargs,
@@ -121,8 +121,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ppo",
-            cwd="./test_ppo",
+            model_name="dqn",
+            cwd="./test_dqn",
             #net_dimension=512,
             kwargs=kwargs,
         )
@@ -146,8 +146,8 @@ def main() -> int:
             technical_indicator_list=INDICATORS,
             drl_lib="elegantrl",
             env=env,
-            model_name="ppo",
-            cwd="./test_ppo",
+            model_name="dqn",
+            cwd="./test_dqn",
             API_KEY=ALPACA_API_KEY,
             API_SECRET=ALPACA_API_SECRET,
             API_BASE_URL=ALPACA_API_BASE_URL,
@@ -155,10 +155,10 @@ def main() -> int:
             if_vix=True,
             kwargs=kwargs,
             state_dim=len(DOW_30_TICKER) * (len(INDICATORS) + 3)
-            + 3,  # bug fix: for ppo add dimension of state/observations space =  len(stocks)* len(INDICATORS) + 3+ 3*len(stocks)
+            + 3,  # bug fix: for dqn add dimension of state/observations space =  len(stocks)* len(INDICATORS) + 3+ 3*len(stocks)
             action_dim=len(
                 DOW_30_TICKER
-            ),  # bug fix: for ppo add dimension of action space = len(stocks)
+            ),  # bug fix: for dqn add dimension of action space = len(stocks)
         )
     else:
         raise ValueError("Wrong mode.")
