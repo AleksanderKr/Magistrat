@@ -9,22 +9,25 @@ from finrl.meta.env_stock_trading.env_intraday_np_train import IntradayTradingTr
 from finrl.meta.env_stock_trading.env_intraday_np_test  import IntradayTradingTestEnv
 from finrl.train import train
 from finrl.test  import test
-from finrl.meta.env_stock_trading.env_stocktrading_np import StockTradingEnv
 from finrl.config_tickers import DOW_30_TICKER
-from finrl.config import INDICATORS, TRAIN_START_DATE, TRAIN_END_DATE, TEST_START_DATE, TEST_END_DATE
-from finrl.config import INTRA_TRAIN_START, INTRA_TRAIN_END, INTRA_TEST_START, INTRA_TEST_END
-
-"""
-python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_dailyBull --envset daily
-python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_dailyBear --envset daily
-python -m finrl.batch_runs --runs 30 --model ppo --note algTrade_intraday --envset intraday
-"""
+from finrl.config import (
+    INDICATORS,
+    # stable
+    TRAIN_START_DATE, TRAIN_END_DATE,
+    TEST_START_DATE, TEST_END_DATE,
+    # intraday
+    INTRA_TRAIN_START, INTRA_TRAIN_END,
+    INTRA_TEST_START, INTRA_TEST_END,
+    # crisis
+    CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE,
+    CRISIS_TEST_START_DATE,  CRISIS_TEST_END_DATE,
+)
 
 ERL_FIXED_PARAMS = {
     "learning_rate":    8.772259590429399e-04,
     "batch_size":       512,
     "gamma":            0.977038766982085,
-    "seed":             312,                # will be incremented per run
+    "seed":             312,                # incremented per run
     "net_dimension":    512,
     "net_dims":         [256, 256],
     "target_step":      8192,
@@ -40,7 +43,6 @@ ERL_FIXED_PARAMS = {
 BREAK_STEP = 3_00_000
 TOP_K      = 5
 
-LOG_FILE = "fixed_log.xlsx"
 best_runs: list[tuple[float, float, str]] = []
 
 LOG_COLUMNS = [
@@ -48,65 +50,99 @@ LOG_COLUMNS = [
     "return", "sharpe", "cagr", "agent_vs_bnh", "params_json"
 ]
 
-
-def init_log(series_tag: str) -> None:
-    if not os.path.isfile(LOG_FILE):
+def init_log(series_tag: str, log_file: str) -> None:
+    if not os.path.isfile(log_file):
         df = pd.DataFrame(columns=LOG_COLUMNS)
-        df.to_excel(LOG_FILE, index=False)
-    with open(LOG_FILE.replace(".xlsx", ".tag"), "a") as tagfile:
+        df.to_excel(log_file, index=False)
+    with open(log_file.replace(".xlsx", ".tag"), "a") as tagfile:
         tagfile.write(f"# NEW_SERIES {series_tag}\n")
 
-
-def append_log(row: dict) -> None:
+def append_log(row: dict, log_file: str) -> None:
     df_new = pd.DataFrame([row])
-    if os.path.isfile(LOG_FILE):
-        with pd.ExcelWriter(LOG_FILE, mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
-            book = writer.book
+    if os.path.isfile(log_file):
+        with pd.ExcelWriter(log_file, mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
             sheet = writer.sheets["Sheet1"]
             start_row = sheet.max_row
             df_new.to_excel(writer, index=False, header=False, startrow=start_row)
     else:
-        df_new.to_excel(LOG_FILE, index=False)
+        df_new.to_excel(log_file, index=False)
 
-def _pick_env_and_dates(envset: str):
-    if envset == "intraday":
-        env_train = IntradayTradingTrainEnv
-        env_test  = IntradayTradingTestEnv
-        interval  = "1m"
-
-        s_train = INTRA_TRAIN_START
-        e_train = INTRA_TRAIN_END
-        s_test  = INTRA_TEST_START
-        e_test  = INTRA_TEST_END
+def _pick_env_and_dates(task: str, freq: str, dataset: str):
+    if freq == "intraday":
+        interval = "1m"
+        if dataset != "intraday":
+            raise ValueError("Use 'intraday'")
+        s_train, e_train = INTRA_TRAIN_START, INTRA_TRAIN_END
+        s_test,  e_test  = INTRA_TEST_START,  INTRA_TEST_END
     else:
-        env_train = DailyTradingTrainEnv
-        env_test  = DailyTradingTestEnv
-        interval  = "1d"
+        interval = "1d"
+        if dataset == "stable":
+            s_train, e_train = TRAIN_START_DATE,   TRAIN_END_DATE
+            s_test,  e_test  = TEST_START_DATE,    TEST_END_DATE
+        elif dataset == "crisis":
+            s_train, e_train = CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE
+            s_test,  e_test  = CRISIS_TEST_START_DATE,  CRISIS_TEST_END_DATE
+        else:
+            raise ValueError("Use 'stable' or 'crisis'")
 
-        s_train = TRAIN_START_DATE
-        e_train = TRAIN_END_DATE
-        s_test  = TEST_START_DATE
-        e_test  = TEST_END_DATE
+    # env + env_extra
+    if task == "trading":
+        if freq == "intraday":
+            env_train, env_test = IntradayTradingTrainEnv, IntradayTradingTestEnv
+            ep_len, warmup = 390, 60
+        else:
+            env_train, env_test = DailyTradingTrainEnv, DailyTradingTestEnv
+            ep_len, warmup = 252, 20
+        env_extra_train = dict(ep_len=ep_len, warmup_lookback=warmup, if_train=True)
+        env_extra_test  = dict(ep_len=ep_len, warmup_lookback=warmup, if_train=False)
+    elif task == "allocation":
+        from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
+        env_train = env_test = StockPortfolioEnv
+        if freq == "intraday":
+            lookback, ep_len, warmup, rebal, rew_scale = 60, 390, 60, 5, (2**-9)
+        else:
+            lookback, ep_len, warmup, rebal, rew_scale = 252, 252, 20, 1, 1.0
+        env_extra_train = dict(
+            lookback=lookback,
+            ep_len=ep_len,
+            warmup_lookback=warmup,
+            rebalance_every=rebal,
+            transaction_cost_pct=1e-3,
+            reward_scaling=rew_scale,
+            if_train=True,
+        )
+        env_extra_test = {**env_extra_train, "if_train": False}
+    else:
+        raise ValueError("task ∈ {'trading','allocation'}")
 
-    return env_train, env_test, interval, s_train, e_train, s_test, e_test
+    return env_train, env_test, interval, s_train, e_train, s_test, e_test, env_extra_train, env_extra_test
 
-def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str, envset: str):
+def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
+             task: str, freq: str, dataset: str, log_file: str):
     erl_params = ERL_FIXED_PARAMS.copy()
     erl_params["seed"] += run_idx
 
-    env_train, env_test, interval, s_train, e_train, s_test, e_test = _pick_env_and_dates(envset)
+    env_train, env_test, interval, s_train, e_train, s_test, e_test, env_extra_train, env_extra_test = \
+        _pick_env_and_dates(task, freq, dataset)
+
     cwd = os.path.join(series_dir, f"trial_{run_idx:03d}")
     os.makedirs(cwd, exist_ok=True)
 
     with open(os.path.join(cwd, "params.json"), "w") as f:
-        json.dump({"erl": erl_params}, f, indent=2)
+        json.dump({
+            "erl": erl_params,
+            "task": task, "freq": freq, "dataset": dataset,
+            "interval": interval,
+            "dates": dict(train=(s_train, e_train), test=(s_test, e_test))
+        }, f, indent=2)
 
     train(
         start_date=s_train, end_date=e_train,
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
         time_interval=interval, technical_indicator_list=INDICATORS,
         drl_lib="elegantrl", env=env_train, model_name=model_name,
-        cwd=cwd, erl_params=erl_params, break_step=BREAK_STEP
+        cwd=cwd, erl_params=erl_params, break_step=BREAK_STEP,
+        env_extra=env_extra_train,
     )
 
     assets, sharpe, cagr, agent_vs_bnh = test(
@@ -114,7 +150,8 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str, en
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
         time_interval=interval, technical_indicator_list=INDICATORS,
         drl_lib="elegantrl", env=env_test, model_name=model_name,
-        cwd=cwd, net_dimension=erl_params["net_dimension"]
+        cwd=cwd, net_dimension=erl_params["net_dimension"],
+        env_extra=env_extra_test,
     )
     ret = assets[-1] / assets[0] - 1
 
@@ -127,8 +164,11 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str, en
         "sharpe":    round(sharpe, 4),
         "cagr":      round(cagr, 4),
         "agent_vs_bnh": round(agent_vs_bnh, 4),
-        "params_json": json.dumps({"erl": erl_params})
-    })
+        "params_json": json.dumps({
+            "erl": erl_params,
+            "task": task, "freq": freq, "dataset": dataset
+        })
+    }, log_file)
 
     best_runs.append((ret, sharpe, cwd))
     best_runs.sort(key=lambda t: t[0], reverse=True)
@@ -138,25 +178,25 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str, en
 
     return ret, sharpe
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs",  type=int, default=10)
-    parser.add_argument("--model", default="sac")
-    parser.add_argument("--note", default="trade", help="Series description")
-    parser.add_argument("--envset", choices=["daily", "intraday"], default="daily",
-                        help="daily = 1d env, intraday = 1m env")
-
+    parser.add_argument("--model", default="ppo")
+    parser.add_argument("--note",  default="batch", help="opis serii")
+    parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
+    parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
+    parser.add_argument("--dataset", choices=["stable", "crisis", "intraday"], default="stable")
     args = parser.parse_args()
 
-    series_tag = f"FIXED_{args.model}_{args.envset}_{args.runs}runs_{args.note}"
+    LOG_FILE = f"fixed_{args.task}_{args.freq}_{args.dataset}.xlsx"
+    series_tag = f"FIXED_{args.model}_{args.task}_{args.freq}_{args.dataset}_{args.runs}runs_{args.note}"
     series_dir = os.path.join("fixed_runs", series_tag)
     os.makedirs(series_dir, exist_ok=True)
-    init_log(series_tag)
+    init_log(series_tag, LOG_FILE)
 
     returns, sharpes = [], []
     for i in range(args.runs):
-        r, s = run_once(i, series_dir, args.model, series_tag)
+        r, s = run_once(i, series_dir, args.model, series_tag, args.task, args.freq, args.dataset, LOG_FILE)
         returns.append(r)
         sharpes.append(s)
         print(f"[Run {i:02d}] Return={r:.4f}  Sharpe={s:.4f}")

@@ -60,18 +60,20 @@ class DRLAgent:
             "turbulence_array": self.turbulence_array,
             "if_train": True,
         }
-        self.model_kwargs = model_kwargs
-        self.gamma = model_kwargs.get("gamma", 0.985)
+
+        self.model_kwargs = model_kwargs or {}
+        self.gamma = self.model_kwargs.get("gamma", 0.985)
 
         env = self.env
         env.env_num = 1
-        agent = MODELS[model_name]
         if model_name not in MODELS:
             raise NotImplementedError("NotImplementedError")
+        agent = MODELS[model_name]
 
         stock_dim = self.price_array.shape[1]
         trading_state_dim = 1 + 2 + 3 * stock_dim + self.tech_array.shape[1]
         action_dim = stock_dim
+
         if getattr(self, "env_args", None) and "df" in self.env_args:
             df = self.env_args["df"]
             if "day" in getattr(df, "columns", []):
@@ -79,10 +81,10 @@ class DRLAgent:
             else:
                 max_step = int(df.index.nunique())
         else:
-            max_step = self.price_array.shape[0]
+            max_step = int(self.price_array.shape[0])
 
         if self.env_args is not None:
-            tech_dim = int(self.tech_array.shape[1] // stock_dim)
+            tech_dim = int(self.tech_array.shape[1] // stock_dim) if stock_dim > 0 else 0
             portfolio_state_dim = stock_dim * (stock_dim + tech_dim)
             merged_env_args = {
                 **self.env_args,
@@ -95,7 +97,6 @@ class DRLAgent:
                 "if_discrete": self.env_args.get("if_discrete", False),
                 "max_step": int(self.env_args.get("max_step", max_step)),
             }
-
             self.env_args = merged_env_args
             self.state_dim = self.env_args["state_dim"]
             self.action_dim = action_dim
@@ -110,30 +111,38 @@ class DRLAgent:
                 "if_discrete": False,
                 "max_step": max_step,
             }
-
         model = Config(agent_class=agent, env_class=env, env_args=self.env_args)
         model.if_off_policy = model_name in OFF_POLICY_MODELS
-        if model_kwargs is not None:
-            try:
-                model.break_step = int(
-                    2e5
-                )  # break training if 'total_step > break_step'
-                model.net_dims = (
-                    128,
-                    64,
-                )  # the middle layer dimension of MultiLayer Perceptron`
-                model.gamma = self.gamma  # discount factor of future rewards
-                model.max_step = int(self.env_args["max_step"])
-                model.horizon_len = min(1024, model.max_step)
-                model.repeat_times = 16  # repeatedly update network using ReplayBuffer to keep critic's loss small
-                model.learning_rate = model_kwargs.get("learning_rate", 1e-4)
-                model.state_value_tau = 0.1  # the tau of normalize for value and state `std = (1-std)*std + tau*std`
-                model.eval_times = model_kwargs.get("eval_times", 2**5)
-                model.eval_per_step = int(2e4)
-            except BaseException:
-                raise ValueError(
-                    "Fail to read arguments, please check 'model_kwargs' input."
-                )
+
+        try:
+            model.gamma = float(self.gamma)
+            model.max_step = int(self.env_args["max_step"])
+
+            model.net_dims = tuple(self.model_kwargs.get("net_dims", (128, 64)))
+            model.learning_rate = float(self.model_kwargs.get("learning_rate", 6e-5))
+
+            default_hl = min(1024, model.max_step)
+            model.horizon_len = int(self.model_kwargs.get("horizon_len", default_hl))
+            model.repeat_times = float(self.model_kwargs.get("repeat_times", 16.0 if model.if_off_policy else 8.0))
+
+            model.batch_size = int(self.model_kwargs.get("batch_size", 1024))
+            if model.if_off_policy:
+                model.buffer_size = int(self.model_kwargs.get("buffer_size", 1_000_000))
+                model.buffer_init_size = int(self.model_kwargs.get("buffer_init_size", max(1024, model.batch_size * 2)))
+                model.if_use_per = bool(self.model_kwargs.get("if_use_per", False))
+
+            model.eval_times = int(self.model_kwargs.get("eval_times", 3))
+            model.eval_per_step = int(self.model_kwargs.get("eval_gap", int(2e4)))
+
+            model.state_value_tau = 0.1
+            model.break_step = int(2e5)
+
+            if "seed" in self.model_kwargs:
+                model.random_seed = int(self.model_kwargs["seed"])
+
+        except BaseException as e:
+            raise ValueError("Fail to read arguments, please check 'model_kwargs' input.") from e
+
         return model
 
     def train_model(self, model, cwd, total_timesteps=5000):

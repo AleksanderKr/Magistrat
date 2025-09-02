@@ -8,8 +8,7 @@ Modes
 
 Usage examples
 --------------
-python -m finrl.optuna_tune --trials 20 --mode single --model ddpg --envset daily
-python -m finrl.optuna_tune --trials 20 --mode pareto --model sac --envset intraday
+python -m finrl.optuna_tune --trials 20 --mode single --model ppo --task trading --freq daily --dataset stable
 
 All runs are logged to ``optuna_log.csv`` and the best checkpoints are kept
 in ``optuna_runs/<trial_id>``.
@@ -34,14 +33,15 @@ from finrl.test import test
 from finrl.config_tickers import DOW_30_TICKER
 from finrl.config import (
     INDICATORS,
-    TRAIN_START_DATE,
-    TRAIN_END_DATE,
-    VALIDATION_START_DATE,
-    VALIDATION_END_DATE, INTRA_TRAIN_START, INTRA_TRAIN_END, INTRA_VAL_START, INTRA_VAL_END,
+    TRAIN_START_DATE, TRAIN_END_DATE,
+    VALIDATION_START_DATE, VALIDATION_END_DATE,
+    CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE,
+    CRISIS_VALIDATION_START_DATE, CRISIS_VALIDATION_END_DATE,
+    INTRA_TRAIN_START, INTRA_TRAIN_END,
+    INTRA_VAL_START, INTRA_VAL_END,
 )
 
 # ───────────────────────────── logging ──────────────────────────────
-LOG_FILE = "optuna_test_intraday.csv"
 TOP_K = 5                           # keep only top‑K checkpoints
 best_runs: List[Tuple[float, float, str]] = []  # (return, sharpe, path)
 
@@ -102,7 +102,6 @@ def sample_erl_params(trial) -> dict:
         "learning_rate": trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True),
         "batch_size": batch_size,
         "gamma": trial.suggest_float("gamma", 0.95, 0.999),
-        "net_dimension": trial.suggest_categorical("net_dimension", [256, 512, 1024]),
         "net_dims": net_dims_options[net_dims_key],
         "target_step": 2048 * 4,
         "horizon_len": 2048,
@@ -111,45 +110,87 @@ def sample_erl_params(trial) -> dict:
         "buffer_init_size": batch_size * 2,
         "eval_gap": 64,
         "eval_times": 16,
+        # "net_dimension": trial.suggest_categorical("net_dimension", [256, 512, 1024]),
     }
 
 
 # ───────────────────────── one Optuna trial ───────────────────────
 
-def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: str, envset: str):
-    """Run a single trial.
-
-    Returns
-    -------
-    single → float   (return)
-    pareto → tuple   (return, sharpe)
+def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: str,
+              task: str, freq: str, dataset: str):
     """
-    if envset == "intraday":
-        env_train = IntradayTradingTrainEnv
-        env_test  = IntradayTradingTestEnv
-        sdate = INTRA_TRAIN_START
-        edate = INTRA_TRAIN_END
-        svdate = INTRA_VAL_START
-        evdate = INTRA_VAL_END
-        interval  = "1m"
+    task:       'trading' | 'allocation'
+    freq:       'daily' | 'intraday'
+    dataset:    'stable' | 'crisis' | 'intraday'
+    """
+    # ────────────────────────────────────────────
+    if freq == "intraday":
+        interval = "1m"
+        if dataset != "intraday":
+            raise ValueError("Use 'intraday'.")
+        sdate, edate  = INTRA_TRAIN_START, INTRA_TRAIN_END
+        svdate, evdate = INTRA_VAL_START, INTRA_VAL_END
     else:
-        env_train = DailyTradingTrainEnv
-        env_test  = DailyTradingTestEnv
-        sdate = TRAIN_START_DATE
-        edate = TRAIN_END_DATE
-        svdate = VALIDATION_START_DATE
-        evdate = VALIDATION_END_DATE
-        interval  = "1d"
+        interval = "1d"
+        if dataset == "stable":
+            sdate, edate  = TRAIN_START_DATE, TRAIN_END_DATE
+            svdate, evdate = VALIDATION_START_DATE, VALIDATION_END_DATE
+        elif dataset == "crisis":
+            sdate, edate  = CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE
+            svdate, evdate = CRISIS_VALIDATION_START_DATE, CRISIS_VALIDATION_END_DATE
+        else:
+            raise ValueError("Use 'stable' or 'crisis'.")
 
+    # ─────────────────────────────
+    if task == "trading":
+        if freq == "intraday":
+            env_train = IntradayTradingTrainEnv
+            env_test  = IntradayTradingTestEnv
+            ep_len, warmup = 390, 60
+        else:
+            env_train = DailyTradingTrainEnv
+            env_test  = DailyTradingTestEnv
+            ep_len, warmup = 252, 20
+
+        env_extra_train = dict(ep_len=ep_len, warmup_lookback=warmup, if_train=True)
+        env_extra_test  = dict(ep_len=ep_len, warmup_lookback=warmup, if_train=False)
+
+    elif task == "allocation":
+        from finrl.meta.env_portfolio_allocation.env_portfolio import StockPortfolioEnv
+        env_train = StockPortfolioEnv
+        env_test  = StockPortfolioEnv
+        if freq == "intraday":
+            lookback, ep_len, warmup, rebal, rew_scale = 60, 390, 60, 5, (2**-9)
+        else:
+            lookback, ep_len, warmup, rebal, rew_scale = 252, 252, 20, 1, 1.0
+
+        env_extra_train = dict(
+            lookback=lookback,
+            ep_len=ep_len,
+            warmup_lookback=warmup,
+            rebalance_every=rebal,
+            transaction_cost_pct=1e-3,
+            reward_scaling=rew_scale,
+            if_train=True,
+        )
+        env_extra_test = {**env_extra_train, "if_train": False}
+    else:
+        raise ValueError("Task can be 'trading' or 'allocation'")
+
+    # ─────────────────────────────────────
     erl_params = sample_erl_params(trial)
 
+    # ───────────────────────────────────────────────────────────
     run_id = f"trial_{trial.number:03d}"
     cwd = os.path.join(series_dir, run_id)
     os.makedirs(cwd, exist_ok=True)
     with open(os.path.join(cwd, "params.json"), "w") as f:
-        json.dump({"erl": erl_params}, f, indent=2)
+        json.dump({"erl": erl_params,
+                   "task": task, "freq": freq, "dataset": dataset,
+                   "interval": interval,
+                   "dates": dict(train=(sdate, edate), val=(svdate, evdate))}, f, indent=2)
 
-    # ─── train ───
+    # ──────────────────────────────────────────────────────────────────
     train(
         start_date=sdate,
         end_date=edate,
@@ -163,9 +204,10 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
         cwd=cwd,
         erl_params=erl_params,
         break_step=int(3e5),
+        env_extra=env_extra_train,
     )
 
-    # ─── evaluate ───
+    # ────────────────────────────────────────────────────────────────
     assets, sharpe, cagr, agent_vs_bnh = test(
         start_date=svdate,
         end_date=evdate,
@@ -177,11 +219,12 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
         env=env_test,
         model_name=model_name,
         cwd=cwd,
-        net_dimension=erl_params["net_dimension"],
+        #net_dimension=erl_params["net_dimension"],
+        env_extra=env_extra_test,
     )
     ret = assets[-1] / assets[0] - 1
 
-    # ─── CSV log ───
+    # ─── log CSV ───────────────────────────────────────────────────────────────
     _append_log(
         {
             "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -192,21 +235,24 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
             "return": f"{ret:.4f}",
             "sharpe": f"{sharpe:.4f}",
             "agent_vs_bnh": f"{agent_vs_bnh:.4f}",
-            "params_json": json.dumps({"erl": erl_params}),
+            "params_json": json.dumps({
+                "erl": erl_params,
+                "task": task, "freq": freq, "dataset": dataset
+            }),
         }
     )
 
-    # ─── keep top‑K checkpoints by return ───
+    # ─── keep top-K ───────────────────────────────────────────────────────────
     best_runs.append((ret, sharpe, cwd))
     best_runs.sort(key=lambda t: t[0], reverse=True)
     while len(best_runs) > TOP_K:
         _, _, path_to_del = best_runs.pop()
         shutil.rmtree(path_to_del, ignore_errors=True)
 
-    # ─── objective ───
+    # ───────────────────────────────────────────────────────
     if mode == "single":
-        return ret  # maximise return only
-    else:  # pareto
+        return ret
+    else:
         return ret, sharpe
 
 
@@ -225,17 +271,15 @@ if __name__ == "__main__":
         default="ddpg",
         help="ElegantRL model name (ddpg, td3, ppo, sac)",
     )
-    parser.add_argument(
-        "--envset",
-        choices=["daily", "intraday"],
-        default="daily",
-        help="Choose env: daily = 1d, intraday = 1m"
-    )
+    parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
+    parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
+    parser.add_argument("--dataset", choices=["stable", "crisis", "intraday"], default="stable")
+
     args = parser.parse_args()
+    LOG_FILE = f"optuna_{args.task}_{args.freq}_{args.dataset}.csv"
 
     # new study & folder
-    series_tag = f"{args.mode.upper()}_{args.model}_{args.envset}_{args.trials}trials_" \
-                 f"{datetime.datetime.now():%y%m%d_%H%M%S}"
+    series_tag = f"{args.task.upper()}_{args.mode.upper()}_{args.model}_{args.freq}_{args.dataset}_{args.trials}trials_{datetime.datetime.now():%y%m%d_%H%M%S}"
     series_dir = os.path.join("optuna_runs", series_tag)
     os.makedirs(series_dir, exist_ok=True)
 
@@ -243,7 +287,7 @@ if __name__ == "__main__":
 
     SEED = 312
     if args.mode == "single":
-        study_name = f"finrl_single_second_{args.model}_{args.envset}"
+        study_name = f"finrl_single_{args.model}_{args.task}_{args.freq}_{args.dataset}"
         #study_name = f"finrl_Second_single_sac_SINGLE_sac_20trials_250729_082359"
         study = optuna.create_study(
             study_name=study_name,
@@ -253,7 +297,7 @@ if __name__ == "__main__":
             load_if_exists=True,
         )
     else:
-        study_name = f"finrl_pareto_second_{args.model}_{args.envset}"
+        study_name = f"finrl_pareto_{args.model}_{args.task}_{args.freq}_{args.dataset}"
         study = optuna.create_study(
             study_name=study_name,
             storage="sqlite:///optuna_finrl.db",
@@ -263,10 +307,10 @@ if __name__ == "__main__":
         )
 
     study.optimize(
-        lambda t: run_trial(t, args.mode, args.model, series_tag, series_dir, args.envset),
+        lambda t: run_trial(t, args.mode, args.model, series_tag, series_dir,
+                            args.task, args.freq, args.dataset),
         n_trials=args.trials,
     )
-
     # summary
     if args.mode == "single":
         best = study.best_trial

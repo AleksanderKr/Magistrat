@@ -163,8 +163,15 @@ def test(
             turbulence_array=turbulence_array,
         )
     # load elegantrl needs state dim, action dim and net dim
-    net_dimension = kwargs.get("net_dimension", 2**7)
+    #net_dimension = kwargs.get("net_dimension", 2**7)
     cwd = kwargs.get("cwd", "./" + str(model_name))
+    net_dimension = kwargs.get("net_dimension", None)
+    if net_dimension is None:
+        nd = kwargs.get("net_dims")
+        if isinstance(nd, (list, tuple)) and len(nd) > 0:
+            net_dimension = int(nd[0])
+        else:
+            net_dimension = 2 ** 7
     print("price_array: ", len(price_array))
 
     if drl_lib == "elegantrl":
