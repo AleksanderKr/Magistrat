@@ -42,6 +42,8 @@ INTRA_VAL_END = "2025-08-21"
 INTRA_TEST_START = "2025-08-22"
 INTRA_TEST_END = "2025-08-31"
 # intraday dates
+TURB_DAILY_BUFFER_DAYS = 730
+TURB_INTRADAY_BUFFER_DAYS = 0
 
 # stockstats technical indicator column names
 # check https://pypi.org/project/stockstats/ for different names

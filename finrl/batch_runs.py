@@ -12,13 +12,10 @@ from finrl.test  import test
 from finrl.config_tickers import DOW_30_TICKER
 from finrl.config import (
     INDICATORS,
-    # stable
     TRAIN_START_DATE, TRAIN_END_DATE,
     TEST_START_DATE, TEST_END_DATE,
-    # intraday
     INTRA_TRAIN_START, INTRA_TRAIN_END,
     INTRA_TEST_START, INTRA_TEST_END,
-    # crisis
     CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE,
     CRISIS_TEST_START_DATE,  CRISIS_TEST_END_DATE,
 )
@@ -27,7 +24,7 @@ ERL_FIXED_PARAMS = {
     "learning_rate":    8.772259590429399e-04,
     "batch_size":       512,
     "gamma":            0.977038766982085,
-    "seed":             312,                # incremented per run
+    "seed":             312,
     "net_dimension":    512,
     "net_dims":         [256, 256],
     "target_step":      8192,
@@ -47,7 +44,9 @@ best_runs: list[tuple[float, float, str]] = []
 
 LOG_COLUMNS = [
     "timestamp", "series", "trial_id", "model",
-    "return", "sharpe", "cagr", "agent_vs_bnh", "params_json"
+    "return", "sharpe", "cagr", "agent_vs_bnh",
+    "ann_vol", "bnh_ann_vol", "max_dd", "bnh_max_dd",
+    "params_json"
 ]
 
 def init_log(series_tag: str, log_file: str) -> None:
@@ -85,7 +84,6 @@ def _pick_env_and_dates(task: str, freq: str, dataset: str):
         else:
             raise ValueError("Use 'stable' or 'crisis'")
 
-    # env + env_extra
     if task == "trading":
         if freq == "intraday":
             env_train, env_test = IntradayTradingTrainEnv, IntradayTradingTestEnv
@@ -145,7 +143,7 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
         env_extra=env_extra_train,
     )
 
-    assets, sharpe, cagr, agent_vs_bnh = test(
+    assets, sharpe, cagr, agent_vs_bnh, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd = test(
         start_date=s_test, end_date=e_test,
         ticker_list=DOW_30_TICKER, data_source="yahoofinance",
         time_interval=interval, technical_indicator_list=INDICATORS,
@@ -164,6 +162,10 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
         "sharpe":    round(sharpe, 4),
         "cagr":      round(cagr, 4),
         "agent_vs_bnh": round(agent_vs_bnh, 4),
+        "ann_vol":   round(ann_vol, 4),
+        "bnh_ann_vol": round(bnh_ann_vol, 4),
+        "max_dd":    round(max_dd, 4),
+        "bnh_max_dd": round(bnh_max_dd, 4),
         "params_json": json.dumps({
             "erl": erl_params,
             "task": task, "freq": freq, "dataset": dataset
@@ -182,7 +184,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs",  type=int, default=10)
     parser.add_argument("--model", default="ppo")
-    parser.add_argument("--note",  default="batch", help="opis serii")
+    parser.add_argument("--note",  default="batch")
     parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
     parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
     parser.add_argument("--dataset", choices=["stable", "crisis", "intraday"], default="stable")

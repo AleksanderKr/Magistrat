@@ -235,7 +235,7 @@ def test(
             intraday=intraday
         )
 
-        return episode_total_assets, (cagr / ann_vol if ann_vol else np.nan), cagr, alpha_pct
+        return episode_total_assets, (cagr / ann_vol if ann_vol else np.nan), cagr, alpha_pct, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd
 
     elif drl_lib == "rllib":
         from finrl.agents.rllib.models import DRLAgent as DRLAgent_rllib
