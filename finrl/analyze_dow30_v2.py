@@ -56,6 +56,7 @@ INTRA_PERIODS = dict(
     val=(INTRA_VAL_START, INTRA_VAL_END),
     test=(INTRA_TEST_START, INTRA_TEST_END),
 )
+INTRA3_COLORS = dict(train="#2ca02c", val="#9467bd", test="#8c564b")
 
 # ----------------------------- helpers --------------------------------- #
 def _period_name(p: str) -> str:
@@ -87,6 +88,10 @@ def titles(period: str) -> Dict[str, str]:
         "bar_boll_u":   "Upper-band breakout rate by period",
         "bar_boll_l":   "Lower-band breakout rate by period",
         "bar_corr":     "Average pair-wise correlation by period",
+        "bar_ma":       f"Share of price>EMA200 ({P})",
+        "bar_macd":     f"Share of MACD>signal ({P})",
+        "bar_adx":      f"Share of ADX>25 ({P})",
+        "bar_slope":    f"Share of positive log-price slope ({P})",
         "y_density":    "Density",
         "y_share":      "Share of observations",
         "y_corr":       "Correlation",
@@ -150,6 +155,95 @@ def get_period_frames_with_buffer(period: str) -> Dict[str, pd.DataFrame]:
     intra = load_data(DOW_30_TICKER, is_buf, ie, "1m")
     return {"bull": bull, "bear": bear, "intra": intra}
 
+def _get_intra_frames_all(buffer_for_turb: bool = False) -> Dict[str, pd.DataFrame]:
+    if buffer_for_turb:
+        tr = get_period_frames_with_buffer("train")["intra"]
+        va = get_period_frames_with_buffer("val")["intra"]
+        te = get_period_frames_with_buffer("test")["intra"]
+    else:
+        tr = get_period_frames("train")["intra"]
+        va = get_period_frames("val")["intra"]
+        te = get_period_frames("test")["intra"]
+    return {"train": tr.copy(), "val": va.copy(), "test": te.copy()}
+
+def _mask_intra_to_period(s: pd.Series, period_key: str) -> pd.Series:
+    is_, ie = INTRA_PERIODS[period_key]
+    idx_lo, idx_hi = pd.Timestamp(is_), pd.Timestamp(ie)
+    return s.loc[(s.index >= idx_lo) & (s.index <= idx_hi)]
+
+def build_intra_logret_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
+    F = _get_intra_frames_all(False)
+    A = _log_ret(F["train"]).dropna()
+    B = _log_ret(F["val"]).dropna()
+    C = _log_ret(F["test"]).dropna()
+    return A, B, C
+
+def build_intra_vol_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
+    F = _get_intra_frames_all(False)
+    def v(df):
+        r = _log_ret(df)
+        return df.assign(lr=r).groupby("tic")["lr"].transform(lambda x: x.rolling(390, min_periods=120).std())
+    A = v(F["train"]).dropna(); B = v(F["val"]).dropna(); C = v(F["test"]).dropna()
+    return A, B, C
+
+def build_intra_rsi_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
+    F = _get_intra_frames_all(False)
+    def r(df): return Sdf.retype(df.sort_values(["tic","timestamp"]).copy())["rsi_30"]
+    A = r(F["train"]).dropna(); B = r(F["val"]).dropna(); C = r(F["test"]).dropna()
+    return A, B, C
+
+def build_intra_volume_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
+    F = _get_intra_frames_all(False)
+    A = np.log1p(F["train"]["volume"]).dropna()
+    B = np.log1p(F["val"]["volume"]).dropna()
+    C = np.log1p(F["test"]["volume"]).dropna()
+    return A, B, C
+
+def build_intra_turb_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
+    F = _get_intra_frames_all(True)
+    A = mahal_turbulence_from_df(F["train"], 390)
+    B = mahal_turbulence_from_df(F["val"], 390)
+    C = mahal_turbulence_from_df(F["test"], 390)
+    A = _mask_intra_to_period(A, "train").dropna()
+    B = _mask_intra_to_period(B, "val").dropna()
+    C = _mask_intra_to_period(C, "test").dropna()
+    return A, B, C
+# ----------------------------- helpers --------------------------------- #
+
+def kde_plot_three(a: pd.Series, b: pd.Series, c: pd.Series,
+                   title: str, filename: str, xlabel: str, percent: bool=False,
+                   labels: Tuple[str, str, str]=("Train", "Validation", "Test")):
+    sA = pd.to_numeric(a, errors="coerce").dropna().astype(float)
+    sB = pd.to_numeric(b, errors="coerce").dropna().astype(float)
+    sC = pd.to_numeric(c, errors="coerce").dropna().astype(float)
+    if min(sA.nunique(), sB.nunique(), sC.nunique()) < 2:
+        print(f"[warn] Skipping KDE for {filename}: a series is constant.")
+        return
+    lims = _percentile_limits(sA, sB, sC, p_lo=1.0, p_hi=99.0)
+    if not lims:
+        print(f"[warn] Skipping KDE for {filename}: invalid domain.")
+        return
+    xmin, xmax = lims
+    xs = _shared_xs(xmin, xmax, 400)
+    kA = _safe_kde(sA, xs); kB = _safe_kde(sB, xs); kC = _safe_kde(sC, xs)
+    if kA is None or kB is None or kC is None:
+        print(f"[warn] Skipping KDE for {filename}: KDE failed.")
+        return
+
+    fig, ax = plt.subplots(figsize=(7.6, 3.2))
+    ax.plot(xs, kA, lw=2.0, label=f"{labels[0]} (N={len(sA)})", color=INTRA3_COLORS["train"], alpha=0.95)
+    ax.plot(xs, kB, lw=2.0, ls="--", label=f"{labels[1]} (N={len(sB)})", color=INTRA3_COLORS["val"], alpha=0.95)
+    ax.plot(xs, kC, lw=2.0, ls="-.", label=f"{labels[2]} (N={len(sC)})", color=INTRA3_COLORS["test"], alpha=0.95)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Density")
+    if percent:
+        ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct))
+    ax.grid(True, which="both", axis="both", alpha=0.3, linestyle="--", linewidth=0.7)
+    ax.legend(loc="upper right", frameon=False)
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / filename, dpi=200)
+    plt.close(fig)
 
 def kde_plot_two(a: pd.Series, b: pd.Series, title: str, filename: str, xlabel: str,
                  percent: bool=False, balanced: bool=False, labels: Tuple[str,str]=None):
@@ -310,6 +404,15 @@ def analyze_log_returns(frames: Dict[str, pd.DataFrame], period: str, draw=False
 
     if draw:
         T = titles(period)
+        A, B, C = build_intra_logret_all()
+        kde_plot_three(
+            A, B, C,
+            "Log-return density (Intraday, Train/Val/Test)",
+            "intra_kde_logret_all.png",
+            "Log return",
+            True,
+            labels=("Train", "Validation", "Test"),
+        )
         kde_plot_two(
             s1, s2,
             T["logret_bb"],
@@ -355,6 +458,15 @@ def analyze_volatility(frames: Dict[str, pd.DataFrame], period: str, draw=False,
 
     if draw:
         T = titles(period)
+        A, B, C = build_intra_vol_all()
+        kde_plot_three(
+            A, B, C,
+            "Rolling volatility σ, 390-minute window (Intraday, Train/Val/Test)",
+            "intra_kde_vol_all.png",
+            "σ (390-minute, intraday)",
+            True,
+            labels=("Train", "Validation", "Test"),
+        )
         kde_plot_two(
             dfs["bull"]["vol"].dropna(),
             dfs["bear"]["vol"].dropna(),
@@ -418,6 +530,15 @@ def analyze_rsi_signals(frames: Dict[str, pd.DataFrame], period: str, draw=False
 
     if draw:
         T = titles(period)
+        A, B, C = build_intra_rsi_all()
+        kde_plot_three(
+            A, B, C,
+            "RSI(30) density (Intraday, Train/Val/Test)",
+            "intra_kde_rsi30_all.png",
+            "RSI (0–100)",
+            False,
+            labels=("Train", "Validation", "Test"),
+        )
         kde_plot_two(
             dfs["bull"]["rsi_30"].dropna(),
             dfs["bear"]["rsi_30"].dropna(),
@@ -556,6 +677,15 @@ def analyze_volume(frames: Dict[str, pd.DataFrame], period: str, draw=False, bal
 
     if draw:
         T = titles(period)
+        A, B, C = build_intra_volume_all()
+        kde_plot_three(
+            A, B, C,
+            "log(1+volume) density (Intraday, Train/Val/Test)",
+            "intra_kde_volume_all.png",
+            "log(1+volume)",
+            False,
+            labels=("Train", "Validation", "Test"),
+        )
         kde_plot_two(
             np.log1p(dfs["bull"]["volume"]),
             np.log1p(dfs["bear"]["volume"]),
@@ -575,7 +705,7 @@ def analyze_volume(frames: Dict[str, pd.DataFrame], period: str, draw=False, bal
 
 def mahal_turbulence_from_df(df: pd.DataFrame, window: int) -> pd.Series:
     price = df.pivot(index="timestamp", columns="tic", values="close").sort_index()
-    ret = price.pct_change().dropna()
+    ret = price.pct_change()
     if ret.empty:
         return pd.Series(dtype=float)
     tser = pd.Series(np.nan, index=ret.index, dtype=float)
@@ -619,6 +749,15 @@ def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False,
 
     if draw and min(len(t_bull.dropna()), len(t_bear.dropna()), len(t_intra.dropna())) > 1:
         T = titles(period)
+        A, B, C = build_intra_turb_all()
+        kde_plot_three(
+            A, B, C,
+            "Turbulence index density (Intraday, Train/Val/Test)",
+            "intra_kde_turb_all.png",
+            "Turbulence index",
+            False,
+            labels=("Train", "Validation", "Test"),
+        )
         kde_plot_two(
             t_bull.dropna(),
             t_bear.dropna(),
@@ -635,6 +774,112 @@ def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False,
             "Turbulence index",
             False,
         )
+def analyze_ma_trend(frames: Dict[str, pd.DataFrame], period: str, draw=False):
+    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
+    def pack(df):
+        ss = Sdf.retype(df.copy())
+        df["ema50"] = ss["close_50_ema"]
+        df["ema200"] = ss["close_200_ema"]
+        df["above200"] = df["close"] > df["ema200"]
+        df["golden"] = (df["ema50"] > df["ema200"]) & (df["ema50"].shift(1) <= df["ema200"].shift(1))
+        df["death"] = (df["ema50"] < df["ema200"]) & (df["ema50"].shift(1) >= df["ema200"].shift(1))
+        valid = df[["ema50","ema200"]].notna().all(axis=1)
+        n = int(valid.sum())
+        p_above = float(df.loc[valid, "above200"].mean()) if n else np.nan
+        n_gold = int(df.loc[valid, "golden"].sum())
+        n_death = int(df.loc[valid, "death"].sum())
+        return pd.Series({"p_above_200": p_above, "golden_cross": n_gold, "death_cross": n_death, "N": n})
+    out = pd.concat(
+        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
+        axis=1
+    ).T.round(4)
+    print("\n=== EMA trend proxies (50/200) ===")
+    print(out.to_string())
+    if draw:
+        T = titles(period)
+        vals = [float(out.loc["Stable","p_above_200"]), float(out.loc["Volatile","p_above_200"]), float(out.loc["Intraday","p_above_200"])]
+        labs = ["Stable","Volatile","Intraday"]
+        bar_plot(vals, labs, T["bar_ma"], f"{period}_bar_ma.png", titles(period)["y_share"], percent=True)
+    return out
+
+def analyze_macd(frames: Dict[str, pd.DataFrame], period: str, draw=False):
+    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
+    def pack(df):
+        ss = Sdf.retype(df.copy())
+        df["macd"] = ss["macd"]
+        df["macds"] = ss["macds"]
+        valid = df[["macd","macds"]].notna().all(axis=1)
+        n = int(valid.sum())
+        bull_share = float((df.loc[valid, "macd"] > df.loc[valid, "macds"]).mean()) if n else np.nan
+        cross_up = int(((df["macd"] > df["macds"]) & (df["macd"].shift(1) <= df["macds"].shift(1)) & valid).sum())
+        cross_dn = int(((df["macd"] < df["macds"]) & (df["macd"].shift(1) >= df["macds"].shift(1)) & valid).sum())
+        return pd.Series({"p_macd>signal": bull_share, "cross_up": cross_up, "cross_dn": cross_dn, "N": n})
+    out = pd.concat(
+        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
+        axis=1
+    ).T.round(4)
+    print("\n=== MACD signals ===")
+    print(out.to_string())
+    if draw:
+        T = titles(period)
+        vals = [float(out.loc["Stable","p_macd>signal"]), float(out.loc["Volatile","p_macd>signal"]), float(out.loc["Intraday","p_macd>signal"])]
+        labs = ["Stable","Volatile","Intraday"]
+        bar_plot(vals, labs, T["bar_macd"], f"{period}_bar_macd.png", titles(period)["y_share"], percent=True)
+    return out
+
+def analyze_adx(frames: Dict[str, pd.DataFrame], period: str, draw=False):
+    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
+    def pack(df):
+        ss = Sdf.retype(df.copy())
+        df["adx"] = ss["adx"]
+        df["+di"] = ss["pdi"]
+        df["-di"] = ss["mdi"]
+        valid = df["adx"].notna()
+        n = int(valid.sum())
+        strong = float((df.loc[valid, "adx"] > 25).mean()) if n else np.nan
+        up_dir = float(((df.loc[valid, "+di"] > df.loc[valid, "-di"]) & (df.loc[valid, "adx"] > 25)).mean()) if n else np.nan
+        dn_dir = float(((df.loc[valid, "+di"] < df.loc[valid, "-di"]) & (df.loc[valid, "adx"] > 25)).mean()) if n else np.nan
+        return pd.Series({"p_adx>25": strong, "p_trend_up_strong": up_dir, "p_trend_dn_strong": dn_dir, "N": n})
+    out = pd.concat(
+        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
+        axis=1
+    ).T.round(4)
+    print("\n=== ADX trend strength ===")
+    print(out.to_string())
+    if draw:
+        T = titles(period)
+        vals = [float(out.loc["Stable","p_adx>25"]), float(out.loc["Volatile","p_adx>25"]), float(out.loc["Intraday","p_adx>25"])]
+        labs = ["Stable","Volatile","Intraday"]
+        bar_plot(vals, labs, T["bar_adx"], f"{period}_bar_adx.png", titles(period)["y_share"], percent=True)
+    return out
+
+def analyze_trend_slope(frames: Dict[str, pd.DataFrame], period: str, window=60, draw=False):
+    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
+    def slope_win(s):
+        y = np.log(s.values)
+        x = np.arange(len(y))
+        if len(y) < 2:
+            return np.nan
+        A = np.vstack([x, np.ones_like(x)]).T
+        b, a = np.linalg.lstsq(A, y, rcond=None)[0]
+        return b
+    def pack(df):
+        r = df.groupby("tic")["close"].rolling(window, min_periods=window//2).apply(slope_win, raw=False).reset_index(name="slope")
+        m = float(r["slope"].mean())
+        p_pos = float((r["slope"] > 0).mean())
+        return pd.Series({"mean_slope": m, "p_slope>0": p_pos})
+    out = pd.concat(
+        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
+        axis=1
+    ).T.round(6)
+    print(f"\n=== Log-price slope (window={window}) ===")
+    print(out.to_string())
+    if draw:
+        T = titles(period)
+        vals = [float(out.loc["Stable","p_slope>0"]), float(out.loc["Volatile","p_slope>0"]), float(out.loc["Intraday","p_slope>0"])]
+        labs = ["Stable","Volatile","Intraday"]
+        bar_plot(vals, labs, T["bar_slope"], f"{period}_bar_slope.png", titles(period)["y_share"], percent=True)
+    return out
 
 def compute_bollinger_rates(frames: Dict[str, pd.DataFrame]):
     outs = {}
@@ -708,6 +953,10 @@ ANALYSIS_FUNCS = {
     "volume": analyze_volume,
     "corr": analyze_correlation,
     "turb": analyze_turbulence,
+    "ma": analyze_ma_trend,
+    "macd": analyze_macd,
+    "adx": analyze_adx,
+    "slope": analyze_trend_slope,
 }
 
 def parse_args():
@@ -736,6 +985,11 @@ if __name__ == "__main__":
         ANALYSIS_FUNCS["volume"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced)
         ANALYSIS_FUNCS["corr"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         ANALYSIS_FUNCS["turb"](frames_buf, args.period, draw_flag, balanced)
+        ANALYSIS_FUNCS["ma"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+        ANALYSIS_FUNCS["macd"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+        ANALYSIS_FUNCS["adx"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+        ANALYSIS_FUNCS["slope"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+
         if draw_flag:
             try:
                 plot_bollinger_rates_all()
@@ -757,3 +1011,8 @@ if __name__ == "__main__":
             fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         elif args.mode == "turb":
             fn(frames_buf, args.period, draw_flag, balanced)
+        elif args.mode in {"ma", "macd", "adx"}:
+            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+        elif args.mode == "slope":
+            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+
