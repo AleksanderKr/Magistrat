@@ -215,11 +215,9 @@ class StockPortfolioEnv(gym.Env):
 
             return self.state, self.reward, self.terminal, False, {}
         else:
-            # actions -> portfolio weights; normalize to sum to 1
-            last_weights = self.actions_memory[-1]  # weights at the end of the previous step
-            new_weights = self.softmax_normalization(actions)  # candidate weights for the next step
-            last_day_memory = self.data  # keep prices from day t
-            # trade only every N steps (no cost, no change on off-steps)
+            last_weights = self.actions_memory[-1]
+            new_weights = self.softmax_normalization(actions).astype(np.float32).reshape(-1)
+            last_day_memory = self.data
             if self.rebalance_every > 1 and (self.day % self.rebalance_every) != 0:
                 new_weights = last_weights
 
@@ -232,23 +230,35 @@ class StockPortfolioEnv(gym.Env):
                 axis=0,
             ).astype(np.float32).reshape(-1)
 
+            n = int(self.data.close.values.shape[0])
+            last_weights = np.asarray(last_weights, dtype=np.float32).reshape(-1)
+            new_weights = np.asarray(new_weights, dtype=np.float32).reshape(-1)
+            if last_weights.shape[0] > n:
+                last_weights = last_weights[:n]
+            elif last_weights.shape[0] < n:
+                last_weights = np.pad(last_weights, (0, n - last_weights.shape[0]))
+            if new_weights.shape[0] > n:
+                new_weights = new_weights[:n]
+            elif new_weights.shape[0] < n:
+                new_weights = np.pad(new_weights, (0, n - new_weights.shape[0]))
+            s = float(new_weights.sum())
+            new_weights = new_weights / (s if np.isfinite(s) and s != 0.0 else 1.0)
+            if not np.all(np.isfinite(new_weights)):
+                new_weights = np.full(n, 1.0 / n, dtype=np.float32)
+
             rel = (self.data.close.values / last_day_memory.close.values) - 1.0
             gross_return = float(np.sum(rel * new_weights))
 
             c = float(getattr(self, "transaction_cost_pct", 1e-3))
             turnover = float(np.sum(np.abs(new_weights - last_weights)))
             cost_frac = c * turnover
-            # net return after paying the rebalancing cost upfront
             effective_return = (1.0 - cost_frac) * (1.0 + gross_return) - 1.0
-            # update portfolio value
+
             self.portfolio_value *= (1.0 + effective_return)
-            # save to memory (net returns)
             self.actions_memory.append(new_weights)
             self.portfolio_return_memory.append(effective_return)
-            #self.date_memory.append(self.data.date.unique()[0])
             self.date_memory.append(self._current_time_label())
             self.asset_memory.append(self.portfolio_value)
-            # reward used for learning (scaled net return)
             self.reward = effective_return * float(self.reward_scaling)
 
         return self.state, self.reward, self.terminal, False, {}
@@ -324,7 +334,8 @@ class StockPortfolioEnv(gym.Env):
         self.portfolio_value = self.initial_amount
         self.terminal = False
         self.portfolio_return_memory = [0]
-        self.actions_memory = [[1 / self.stock_dim] * self.stock_dim]
+        n = int(self.df.loc[self.day, :].close.values.shape[0])
+        self.actions_memory = [np.full(n, 1.0 / n, dtype=np.float32)]
         self.date_memory = [self._current_time_label()]
 
         self.reward = 0.0

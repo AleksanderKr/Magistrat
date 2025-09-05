@@ -985,10 +985,10 @@ if __name__ == "__main__":
         ANALYSIS_FUNCS["volume"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced)
         ANALYSIS_FUNCS["corr"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         ANALYSIS_FUNCS["turb"](frames_buf, args.period, draw_flag, balanced)
-        ANALYSIS_FUNCS["ma"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+        """ANALYSIS_FUNCS["ma"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         ANALYSIS_FUNCS["macd"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         ANALYSIS_FUNCS["adx"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
-        ANALYSIS_FUNCS["slope"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+        ANALYSIS_FUNCS["slope"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)"""
 
         if draw_flag:
             try:

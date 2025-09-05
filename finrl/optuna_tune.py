@@ -39,6 +39,9 @@ from finrl.config import (
     CRISIS_VALIDATION_START_DATE, CRISIS_VALIDATION_END_DATE,
     INTRA_TRAIN_START, INTRA_TRAIN_END,
     INTRA_VAL_START, INTRA_VAL_END,
+    BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE,
+    BEAR2008_VALIDATION_START_DATE, BEAR2008_VALIDATION_END_DATE,
+    BEAR2008_TEST_START_DATE, BEAR2008_TEST_END_DATE,
 )
 
 # ───────────────────────────── logging ──────────────────────────────
@@ -121,7 +124,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
     """
     task:       'trading' | 'allocation'
     freq:       'daily' | 'intraday'
-    dataset:    'stable' | 'crisis' | 'intraday'
+    dataset:    'stable' | 'volatile' | 'intraday'
     """
     # ────────────────────────────────────────────
     if freq == "intraday":
@@ -133,13 +136,16 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
     else:
         interval = "1d"
         if dataset == "stable":
-            sdate, edate  = TRAIN_START_DATE, TRAIN_END_DATE
+            sdate, edate = TRAIN_START_DATE, TRAIN_END_DATE
             svdate, evdate = VALIDATION_START_DATE, VALIDATION_END_DATE
-        elif dataset == "crisis":
-            sdate, edate  = CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE
+        elif dataset == "volatile":
+            sdate, edate = CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE
             svdate, evdate = CRISIS_VALIDATION_START_DATE, CRISIS_VALIDATION_END_DATE
+        elif dataset == "bear":
+            sdate, edate = BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE
+            svdate, evdate = BEAR2008_VALIDATION_START_DATE, BEAR2008_VALIDATION_END_DATE
         else:
-            raise ValueError("Use 'stable' or 'crisis'.")
+            raise ValueError("Use 'stable', 'volatile' or 'bear'.")
 
     # ─────────────────────────────
     if task == "trading":
@@ -208,7 +214,7 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
     )
 
     # ────────────────────────────────────────────────────────────────
-    assets, sharpe, cagr, agent_vs_bnh = test(
+    res = test(
         start_date=svdate,
         end_date=evdate,
         ticker_list=DOW_30_TICKER,
@@ -219,9 +225,9 @@ def run_trial(trial, mode: str, model_name: str, series_tag: str, series_dir: st
         env=env_test,
         model_name=model_name,
         cwd=cwd,
-        #net_dimension=erl_params["net_dimension"],
         env_extra=env_extra_test,
     )
+    assets, sharpe, cagr, agent_vs_bnh, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd = res
     ret = assets[-1] / assets[0] - 1
 
     # ─── log CSV ───────────────────────────────────────────────────────────────
@@ -273,7 +279,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
     parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
-    parser.add_argument("--dataset", choices=["stable", "crisis", "intraday"], default="stable")
+    parser.add_argument("--dataset", choices=["stable", "volatile", "intraday", "bear"], default="stable")
 
     args = parser.parse_args()
     LOG_FILE = f"optuna_{args.task}_{args.freq}_{args.dataset}.csv"

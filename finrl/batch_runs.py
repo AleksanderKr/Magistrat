@@ -18,6 +18,8 @@ from finrl.config import (
     INTRA_TEST_START, INTRA_TEST_END,
     CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE,
     CRISIS_TEST_START_DATE,  CRISIS_TEST_END_DATE,
+    BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE,
+    BEAR2008_TEST_START_DATE,  BEAR2008_TEST_END_DATE,
 )
 
 ERL_FIXED_PARAMS = {
@@ -76,13 +78,16 @@ def _pick_env_and_dates(task: str, freq: str, dataset: str):
     else:
         interval = "1d"
         if dataset == "stable":
-            s_train, e_train = TRAIN_START_DATE,   TRAIN_END_DATE
-            s_test,  e_test  = TEST_START_DATE,    TEST_END_DATE
+            s_train, e_train = TRAIN_START_DATE, TRAIN_END_DATE
+            s_test, e_test = TEST_START_DATE, TEST_END_DATE
         elif dataset == "crisis":
             s_train, e_train = CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE
-            s_test,  e_test  = CRISIS_TEST_START_DATE,  CRISIS_TEST_END_DATE
+            s_test, e_test = CRISIS_TEST_START_DATE, CRISIS_TEST_END_DATE
+        elif dataset == "bear":
+            s_train, e_train = BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE
+            s_test, e_test = BEAR2008_TEST_START_DATE, BEAR2008_TEST_END_DATE
         else:
-            raise ValueError("Use 'stable' or 'crisis'")
+            raise ValueError("Use 'stable' or 'crisis' or 'bear'")
 
     if task == "trading":
         if freq == "intraday":
@@ -187,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("--note",  default="batch")
     parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
     parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
-    parser.add_argument("--dataset", choices=["stable", "crisis", "intraday"], default="stable")
+    parser.add_argument("--dataset", choices=["stable", "crisis", "intraday", "bear"], default="stable")
     args = parser.parse_args()
 
     LOG_FILE = f"fixed_{args.task}_{args.freq}_{args.dataset}.xlsx"
