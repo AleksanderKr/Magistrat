@@ -7,8 +7,6 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 from finrl.meta.data_processor import DataProcessor
-
-
 from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
 from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
 from finrl.meta.env_stock_trading.env_intraday_np_train import IntradayTradingTrainEnv
@@ -28,25 +26,35 @@ from finrl.config import (
     BEAR2008_TEST_START_DATE,  BEAR2008_TEST_END_DATE,
 )
 
+"""
+start with
+python -m finrl.batch_runs --runs 20 --model ppo  --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model ddpg --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model sac  --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model td3  --task trading --freq daily --dataset stable --note batch
+
+end with
+python -m finrl.batch_runs --task trading --freq daily --dataset stable --note batch --compare_agents ppo,ddpg,sac,td3 --aggregate_only
+"""
+
 ERL_FIXED_PARAMS = {
-    "learning_rate":    8.772259590429399e-04,
-    "batch_size":       512,
-    "gamma":            0.977038766982085,
-    "seed":             312,
-    "net_dimension":    512,
-    "net_dims":         [256, 256],
+    "learning_rate":    3.237777919667423e-04,
+    "batch_size":       4096,
+    "gamma":            0.9777893947700497,
+    "net_dimension":    1024,
     "target_step":      8192,
     "horizon_len":      2048,
-    "repeat_times":     3.0,
+    "repeat_times":     4.0,
     "buffer_size":      int(1e6),
-    "buffer_init_size": 1024,
-    "if_use_per":       False,
+    "buffer_init_size": 8192,
     "eval_gap":         64,
     "eval_times":       16,
+    "if_use_per":       False,
+    "seed":             312,
 }
 
 BREAK_STEP = 3_00_000
-TOP_K      = 5
+#TOP_K      = 20
 
 best_runs: list[tuple[float, float, str]] = []
 
@@ -150,7 +158,7 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
         ticker_list=tickers, data_source="yahoofinance",
         time_interval=interval, technical_indicator_list=INDICATORS,
         drl_lib="elegantrl", env=env_train, model_name=model_name,
-        cwd=cwd, erl_params=erl_params, break_step=1e5,
+        cwd=cwd, erl_params=erl_params, break_step=BREAK_STEP,
         env_extra=env_extra_train,
     )
     assets, sharpe, cagr, agent_vs_bnh, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd = test(
@@ -180,11 +188,11 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
             "task": task, "freq": freq, "dataset": dataset
         })
     }, log_file)
-    best_runs.append((ret, sharpe, cwd))
+    """best_runs.append((ret, sharpe, cwd))
     best_runs.sort(key=lambda t: t[0], reverse=True)
     while len(best_runs) > TOP_K:
         _, _, path_to_del = best_runs.pop()
-        shutil.rmtree(path_to_del, ignore_errors=True)
+        shutil.rmtree(path_to_del, ignore_errors=True)"""
     return ret, sharpe
 
 def _is_intraday(freq: str) -> bool:
@@ -253,7 +261,7 @@ def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, in
         b = ref_curve[:n].astype(float)
         ret = a[-1]/a[0] - 1.0
         rets = np.diff(a)/a[:-1]
-        vol = rets.std(ddof=0) * np.sqrt(steps_per_year) if rets.size else np.nan
+        vol = rets.std(ddof=1) * np.sqrt(steps_per_year) if rets.size else np.nan
         cagr = (a[-1]/a[0])**(steps_per_year/max(1, rets.size)) - 1 if rets.size else np.nan
         mdd = (a/np.maximum.accumulate(a) - 1).min()
         bret = b[-1]/b[0]
@@ -399,12 +407,12 @@ if __name__ == "__main__":
         )
 
 """
-najpierw takie cos
+start with
 python -m finrl.batch_runs --runs 20 --model ppo  --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model ddpg --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model sac  --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model td3  --task trading --freq daily --dataset stable --note batch
 
-potem finalnie
+end with
 python -m finrl.batch_runs --task trading --freq daily --dataset stable --note batch --compare_agents ppo,ddpg,sac,td3 --aggregate_only
 """
