@@ -10,7 +10,6 @@ from matplotlib.dates import AutoDateLocator, AutoDateFormatter
 from stockstats import StockDataFrame as Sdf
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
-from matplotlib.ticker import FuncFormatter
 
 FIG_TREND_DIR = Path("finrl/figures/trend")
 FIG_TREND_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,14 +31,13 @@ from finrl.config import (
 )
 
 SPLIT_COLORS = {
-    "train": "#1f77b4",
-    "val": "#d62728",
-    "test": "#2ca02c",
+    "train": "#6baed6",
+    "val": "#fc9272",
+    "test": "#74c476",
 }
 sys.path.append("/home/krucz/Desktop/magistrat/Magistrat")
 from finrl.meta.data_processors.processor_yahoofinance import YahooFinanceProcessor
 
-#tickers = ["AAPL", "MSFT"]
 tech_indicators = ["macd", "rsi_30", "cci_30", "dx_30", "boll_ub", "boll_lb"]
 
 periods = [
@@ -362,21 +360,26 @@ overall_end = max(
     to_ts(INTRA_TEST_END),
 )
 
-djia = processor.download_data(
-    ticker_list=["^DJI"],
+panel = processor.download_data(
+    ticker_list=DOW_30_TICKER,
     start_date=overall_start.strftime("%Y-%m-%d"),
     end_date=overall_end.strftime("%Y-%m-%d"),
     time_interval="1d"
 )
-djia = processor.clean_data(djia)
-djia = djia[djia["tic"] == "^DJI"].copy()
-djia["timestamp"] = pd.to_datetime(djia["timestamp"])
-djia = djia.sort_values("timestamp")
+panel = processor.clean_data(panel).copy()
+panel["timestamp"] = pd.to_datetime(panel["timestamp"])
+panel = panel.sort_values(["timestamp","tic"])
+
+first_close = panel.dropna(subset=["close"]).groupby("tic")["close"].transform("first")
+panel["norm_close"] = panel["close"] / first_close
+
+bnh = panel.groupby("timestamp")["norm_close"].agg(["mean","count"]).reset_index()
+bnh = bnh.rename(columns={"mean":"eqw_bnh","count":"n_constituents"})
+bnh = bnh[bnh["n_constituents"] >= 20]
 
 fig = plt.figure(figsize=(12, 4.5))
 ax = plt.gca()
-ax.plot(djia["timestamp"], djia["close"], linewidth=1.2, label="DJIA")
-
+ax.plot(bnh["timestamp"], bnh["eqw_bnh"], linewidth=1.2, label="Equal-weight B&H (DOW30)")
 
 big_blocks = [
     ("Bullish Stable",   to_ts(TRAIN_START_DATE),          to_ts(TEST_END_DATE),            0.07, "lightgreen"),
@@ -410,8 +413,8 @@ for label, s, e in sub_blocks:
                 ha="center", va="top", fontsize=8)
     ax.axvline(e, linestyle="--", linewidth=0.8, color="k", alpha=0.5)
 
-ax.set_title("Dataset splits presented on DJIA chart")
-ax.set_ylabel("Index level")
+ax.set_title("Dataset splits presented on equal-weight B&H of DOW30")
+ax.set_ylabel("Normalised level")
 ax.set_xlabel("Date")
 ax.legend(loc="upper left", fontsize=9, frameon=False)
 locator = AutoDateLocator()
@@ -422,6 +425,7 @@ fig.tight_layout()
 plt.savefig(FIG_TREND_DIR / "djia_splits.png", dpi=200)
 plt.close(fig)
 print(f"[saved] {FIG_TREND_DIR / 'djia_splits.png'}")
+
 
 # Run the analytics for each split
 for split in ["train","val","test"]:

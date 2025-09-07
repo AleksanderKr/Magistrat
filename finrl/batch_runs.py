@@ -286,6 +286,55 @@ def _print_agg_table(df: pd.DataFrame):
     row = " | ".join([f"{mean[c]:.6f} ± {std[c]:.6f}".ljust(widths[c]) for c in cols])
     print(row)
 
+def _series_dir_for(model: str, task: str, freq: str, dataset: str, note: str):
+    tag = f"FIXED_{model}_{task}_{freq}_{dataset}_runs_{note}"
+    return os.path.join("fixed_runs", tag)
+
+def _agent_mean_curve(series_dir: str, intraday: bool, start_date: str):
+    curves, bnh = _stack_curves(series_dir)
+    if curves is None:
+        return None, None, None
+    norm = curves / curves[:, [0]]
+    mean = norm.mean(axis=0)
+    n = mean.shape[0]
+    x = np.arange(n) if intraday else pd.bdate_range(start=start_date, periods=n)
+    ref = bnh / bnh[0]
+    if len(ref) != n:
+        ref = ref[:n]
+    return x, mean, ref
+
+def compare_and_plot_agents(agents_csv: str, task: str, freq: str, dataset: str, note: str, start_date_daily: str, out_name: str):
+    agents = [a.strip() for a in agents_csv.split(",") if a.strip()]
+    intraday = (freq == "intraday")
+    xs, means, labels = [], [], []
+    ref_any = None
+    for a in agents:
+        d = _series_dir_for(a, task, freq, dataset, note)
+        x, m, ref = _agent_mean_curve(d, intraday, start_date_daily)
+        if x is None:
+            continue
+        xs.append(x); means.append(m); labels.append(a.upper())
+        if ref_any is None:
+            ref_any = ref
+    if not means:
+        print("No agents found for comparison.")
+        return
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    for x, m, lbl in zip(xs, means, labels):
+        ax.plot(x, m, linewidth=1.8, label=lbl)
+    if ref_any is not None:
+        ax.plot(xs[0], ref_any[:len(xs[0])], linewidth=1.2, linestyle="--", label="Buy & Hold")
+    ax.set_xlabel("Step" if intraday else "Date")
+    ax.set_ylabel("Cumulative return")
+    ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    if not intraday:
+        ax.set_xlim(xs[0][0], xs[0][-1]); fig.autofmt_xdate()
+    ax.grid(True, which="major", linestyle="--", alpha=0.6)
+    ax.legend()
+    plt.tight_layout()
+    out_dir = _series_dir_for(agents[0], task, freq, dataset, note)
+    plt.savefig(os.path.join(out_dir, out_name), bbox_inches="tight")
+    plt.close(fig)
 
 def aggregate_and_plot(series_dir: str, freq: str, start_date_daily: str, out_prefix: str):
     curves, bnh = _stack_curves(series_dir)
@@ -311,6 +360,7 @@ if __name__ == "__main__":
     parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
     parser.add_argument("--dataset", choices=["stable", "crisis", "intraday", "bear"], default="stable")
     parser.add_argument("--aggregate_only", action="store_true")
+    parser.add_argument("--compare_agents", type=str, default="")
     args = parser.parse_args()
 
     LOG_FILE = f"fixed_{args.task}_{args.freq}_{args.dataset}.xlsx"
@@ -337,11 +387,24 @@ if __name__ == "__main__":
         start_date_daily=TEST_START_DATE,
         out_prefix="series"
     )
+    if args.compare_agents:
+        compare_and_plot_agents(
+            agents_csv=args.compare_agents,
+            task=args.task,
+            freq=args.freq,
+            dataset=args.dataset,
+            note=args.note,
+            start_date_daily=TEST_START_DATE,
+            out_name="Combined_Agents_Equity.jpg"
+        )
 
 """
-python -m  finrl.batch_runs --runs 20 --model ppo --task trading --freq daily --dataset stable
+najpierw takie cos
+python -m finrl.batch_runs --runs 20 --model ppo  --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model ddpg --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model sac  --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model td3  --task trading --freq daily --dataset stable --note batch
 
-with drawing:
-python -m  finrl.batch_runs --model ppo --task trading --freq daily --dataset stable --aggregate_only
-
+potem finalnie
+python -m finrl.batch_runs --task trading --freq daily --dataset stable --note batch --compare_agents ppo,ddpg,sac,td3 --aggregate_only
 """

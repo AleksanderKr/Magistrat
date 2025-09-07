@@ -4,8 +4,10 @@ Examples
 --------
 python -m finrl.analyze_dow30_v2 --period train --mode all
 python -m finrl.analyze_dow30_v2 --period train --mode all --draw true
+python -m finrl.analyze_dow30_v2 --period train --mode all --draw true --include-intraday-on-daily true
 """
 
+#!/usr/bin/env python
 import argparse
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -24,6 +26,9 @@ from finrl.config import (
     CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE,
     CRISIS_VALIDATION_START_DATE, CRISIS_VALIDATION_END_DATE,
     CRISIS_TEST_START_DATE, CRISIS_TEST_END_DATE,
+    BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE,
+    BEAR2008_VALIDATION_START_DATE, BEAR2008_VALIDATION_END_DATE,
+    BEAR2008_TEST_START_DATE, BEAR2008_TEST_END_DATE,
     INTRA_TRAIN_START, INTRA_TRAIN_END,
     INTRA_VAL_START, INTRA_VAL_END,
     INTRA_TEST_START, INTRA_TEST_END,
@@ -37,57 +42,49 @@ FIG_DIR.mkdir(exist_ok=True)
 
 TECHNICALS = ["rsi_30", "boll_ub", "boll_lb"]
 
-REG_KEYS = ["bull", "bear", "intra"]
-REG_LABELS = dict(bull="`Stable`", bear="Volatile", intra="Intraday")
-REG_COLORS = dict(bull="#1f77b4", bear="#d62728", intra="#2ca02c")
+REG_KEYS = ["bull", "bullv", "bearish", "intra"]
+REG_LABELS = dict(bull="Bullish Stable", bullv="Bullish Volatile", bearish="Bearish", intra="Intraday")
+REG_COLORS = dict(bull="#6baed6", bullv="#fc9272", bearish="#74c476", intra="#9467bd")
 
-BULL_PERIODS = dict(
+BULL_STABLE_PERIODS = dict(
     train=(TRAIN_START_DATE, TRAIN_END_DATE),
     val=(VALIDATION_START_DATE, VALIDATION_END_DATE),
     test=(TEST_START_DATE, TEST_END_DATE),
 )
-BEAR_PERIODS = dict(
+BULL_VOLATILE_PERIODS = dict(
     train=(CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE),
     val=(CRISIS_VALIDATION_START_DATE, CRISIS_VALIDATION_END_DATE),
     test=(CRISIS_TEST_START_DATE, CRISIS_TEST_END_DATE),
+)
+BEARISH_PERIODS = dict(
+    train=(BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE),
+    val=(BEAR2008_VALIDATION_START_DATE, BEAR2008_VALIDATION_END_DATE),
+    test=(BEAR2008_TEST_START_DATE, BEAR2008_TEST_END_DATE),
 )
 INTRA_PERIODS = dict(
     train=(INTRA_TRAIN_START, INTRA_TRAIN_END),
     val=(INTRA_VAL_START, INTRA_VAL_END),
     test=(INTRA_TEST_START, INTRA_TEST_END),
 )
+
 INTRA3_COLORS = dict(train="#2ca02c", val="#9467bd", test="#8c564b")
 
-# ----------------------------- helpers --------------------------------- #
 def _period_name(p: str) -> str:
     return dict(train="Train", val="Validation", test="Test")[p]
-
-def legend_labels(period: str) -> Tuple[str, str]:
-    bs, be = BULL_PERIODS[period]
-    cs, ce = BEAR_PERIODS[period]
-    return (f"Stable",
-            f"Volatile")
-
-def legend_label_intra(period: str) -> str:
-    is_, ie = INTRA_PERIODS[period]
-    return f"Intraday"
 
 def titles(period: str) -> Dict[str, str]:
     P = _period_name(period)
     return {
-        "logret_bb":    f"Log-return density (Stable vs Volatile, {P} set)",
-        "logret_intra": f"Log-return density (Intraday, {P} set)",
-        "vol_bb":       f"Rolling volatility σ, 30-day window (Daily, {P} set)",
-        "vol_intra":    f"Rolling volatility σ, 390-minute window (Intraday, {P} set)",
-        "rsi_bb":       f"RSI(30) density (Stable vs Volatile, {P} set)",
-        "rsi_intra":    f"RSI(30) density (Intraday, {P} set)",
-        "volu_bb":      f"log(1+volume) density (Stable vs Volatile, {P} set)",
-        "volu_intra":   f"log(1+volume) density (Intraday, {P} set)",
-        "turb_bb":      f"Turbulence index density (Stable vs Volatile, {P} set)",
-        "turb_intra":   f"Turbulence index density (Intraday, {P} set)",
-        "bar_boll_u":   "Upper-band breakout rate by period",
-        "bar_boll_l":   "Lower-band breakout rate by period",
-        "bar_corr":     "Average pair-wise correlation by period",
+        "logret_daily": f"Log-return density (daily regimes, {P})",
+        "logret_intra": f"Log-return density (Intraday, {P})",
+        "vol_daily":    f"Rolling volatility σ, 30-day window (Daily, {P})",
+        "vol_intra":    f"Rolling volatility σ, 390-minute window (Intraday, {P})",
+        "rsi_daily":    f"RSI(30) density (Daily regimes, {P})",
+        "rsi_intra":    f"RSI(30) density (Intraday, {P})",
+        "volu_daily":   f"log(1+volume) density (Daily regimes, {P})",
+        "volu_intra":   f"log(1+volume) density (Intraday, {P})",
+        "turb_daily":   f"Turbulence index density (Daily regimes, {P})",
+        "turb_intra":   f"Turbulence index density (Intraday, {P})",
         "bar_ma":       f"Share of price>EMA200 ({P})",
         "bar_macd":     f"Share of MACD>signal ({P})",
         "bar_adx":      f"Share of ADX>25 ({P})",
@@ -135,25 +132,30 @@ def load_data(tickers: List[str], start: str, end: str, interval: str) -> pd.Dat
     return d.reset_index(drop=True)
 
 def get_period_frames(period: str) -> Dict[str, pd.DataFrame]:
-    bs, be = BULL_PERIODS[period]
-    cs, ce = BEAR_PERIODS[period]
+    bs, be = BULL_STABLE_PERIODS[period]
+    bv_s, bv_e = BULL_VOLATILE_PERIODS[period]
+    br_s, br_e = BEARISH_PERIODS[period]
     is_, ie = INTRA_PERIODS[period]
     bull = load_data(DOW_30_TICKER, bs, be, "1d")
-    bear = load_data(DOW_30_TICKER, cs, ce, "1d")
+    bullv = load_data(DOW_30_TICKER, bv_s, bv_e, "1d")
+    bearish = load_data(DOW_30_TICKER, br_s, br_e, "1d")
     intra = load_data(DOW_30_TICKER, is_, ie, "1m")
-    return {"bull": bull, "bear": bear, "intra": intra}
+    return {"bull": bull, "bullv": bullv, "bearish": bearish, "intra": intra}
 
 def get_period_frames_with_buffer(period: str) -> Dict[str, pd.DataFrame]:
-    bs, be = BULL_PERIODS[period]
-    cs, ce = BEAR_PERIODS[period]
+    bs, be = BULL_STABLE_PERIODS[period]
+    bv_s, bv_e = BULL_VOLATILE_PERIODS[period]
+    br_s, br_e = BEARISH_PERIODS[period]
     is_, ie = INTRA_PERIODS[period]
     bs_buf = (pd.Timestamp(bs) - pd.Timedelta(days=TURB_DAILY_BUFFER_DAYS)).strftime("%Y-%m-%d")
-    cs_buf = (pd.Timestamp(cs) - pd.Timedelta(days=TURB_DAILY_BUFFER_DAYS)).strftime("%Y-%m-%d")
+    bv_buf = (pd.Timestamp(bv_s) - pd.Timedelta(days=TURB_DAILY_BUFFER_DAYS)).strftime("%Y-%m-%d")
+    br_buf = (pd.Timestamp(br_s) - pd.Timedelta(days=TURB_DAILY_BUFFER_DAYS)).strftime("%Y-%m-%d")
     is_buf = (pd.Timestamp(is_) - pd.Timedelta(days=TURB_INTRADAY_BUFFER_DAYS)).strftime("%Y-%m-%d")
     bull = load_data(DOW_30_TICKER, bs_buf, be, "1d")
-    bear = load_data(DOW_30_TICKER, cs_buf, ce, "1d")
+    bullv = load_data(DOW_30_TICKER, bv_buf, bv_e, "1d")
+    bearish = load_data(DOW_30_TICKER, br_buf, br_e, "1d")
     intra = load_data(DOW_30_TICKER, is_buf, ie, "1m")
-    return {"bull": bull, "bear": bear, "intra": intra}
+    return {"bull": bull, "bullv": bullv, "bearish": bearish, "intra": intra}
 
 def _get_intra_frames_all(buffer_for_turb: bool = False) -> Dict[str, pd.DataFrame]:
     if buffer_for_turb:
@@ -166,74 +168,23 @@ def _get_intra_frames_all(buffer_for_turb: bool = False) -> Dict[str, pd.DataFra
         te = get_period_frames("test")["intra"]
     return {"train": tr.copy(), "val": va.copy(), "test": te.copy()}
 
-def _mask_intra_to_period(s: pd.Series, period_key: str) -> pd.Series:
-    is_, ie = INTRA_PERIODS[period_key]
-    idx_lo, idx_hi = pd.Timestamp(is_), pd.Timestamp(ie)
-    return s.loc[(s.index >= idx_lo) & (s.index <= idx_hi)]
+def _log_ret(df: pd.DataFrame) -> pd.Series:
+    return df.groupby("tic")["close"].transform(lambda x: np.log(x / x.shift(1)))
 
-def build_intra_logret_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
-    F = _get_intra_frames_all(False)
-    A = _log_ret(F["train"]).dropna()
-    B = _log_ret(F["val"]).dropna()
-    C = _log_ret(F["test"]).dropna()
-    return A, B, C
-
-def build_intra_vol_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
-    F = _get_intra_frames_all(False)
-    def v(df):
-        r = _log_ret(df)
-        return df.assign(lr=r).groupby("tic")["lr"].transform(lambda x: x.rolling(390, min_periods=120).std())
-    A = v(F["train"]).dropna(); B = v(F["val"]).dropna(); C = v(F["test"]).dropna()
-    return A, B, C
-
-def build_intra_rsi_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
-    F = _get_intra_frames_all(False)
-    def r(df): return Sdf.retype(df.sort_values(["tic","timestamp"]).copy())["rsi_30"]
-    A = r(F["train"]).dropna(); B = r(F["val"]).dropna(); C = r(F["test"]).dropna()
-    return A, B, C
-
-def build_intra_volume_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
-    F = _get_intra_frames_all(False)
-    A = np.log1p(F["train"]["volume"]).dropna()
-    B = np.log1p(F["val"]["volume"]).dropna()
-    C = np.log1p(F["test"]["volume"]).dropna()
-    return A, B, C
-
-def build_intra_turb_all() -> Tuple[pd.Series, pd.Series, pd.Series]:
-    F = _get_intra_frames_all(True)
-    A = mahal_turbulence_from_df(F["train"], 390)
-    B = mahal_turbulence_from_df(F["val"], 390)
-    C = mahal_turbulence_from_df(F["test"], 390)
-    A = _mask_intra_to_period(A, "train").dropna()
-    B = _mask_intra_to_period(B, "val").dropna()
-    C = _mask_intra_to_period(C, "test").dropna()
-    return A, B, C
-# ----------------------------- helpers --------------------------------- #
-
-def kde_plot_three(a: pd.Series, b: pd.Series, c: pd.Series,
-                   title: str, filename: str, xlabel: str, percent: bool=False,
-                   labels: Tuple[str, str, str]=("Train", "Validation", "Test")):
-    sA = pd.to_numeric(a, errors="coerce").dropna().astype(float)
-    sB = pd.to_numeric(b, errors="coerce").dropna().astype(float)
-    sC = pd.to_numeric(c, errors="coerce").dropna().astype(float)
-    if min(sA.nunique(), sB.nunique(), sC.nunique()) < 2:
-        print(f"[warn] Skipping KDE for {filename}: a series is constant.")
+def kde_plot_many(series_list: List[pd.Series], labels: List[str], title: str, filename: str, xlabel: str, percent: bool=False):
+    xs_minmax = _percentile_limits(*series_list, p_lo=1.0, p_hi=99.0)
+    if not xs_minmax:
         return
-    lims = _percentile_limits(sA, sB, sC, p_lo=1.0, p_hi=99.0)
-    if not lims:
-        print(f"[warn] Skipping KDE for {filename}: invalid domain.")
-        return
-    xmin, xmax = lims
-    xs = _shared_xs(xmin, xmax, 400)
-    kA = _safe_kde(sA, xs); kB = _safe_kde(sB, xs); kC = _safe_kde(sC, xs)
-    if kA is None or kB is None or kC is None:
-        print(f"[warn] Skipping KDE for {filename}: KDE failed.")
-        return
-
+    xs = _shared_xs(xs_minmax[0], xs_minmax[1], 400)
     fig, ax = plt.subplots(figsize=(7.6, 3.2))
-    ax.plot(xs, kA, lw=2.0, label=f"{labels[0]} (N={len(sA)})", color=INTRA3_COLORS["train"], alpha=0.95)
-    ax.plot(xs, kB, lw=2.0, ls="--", label=f"{labels[1]} (N={len(sB)})", color=INTRA3_COLORS["val"], alpha=0.95)
-    ax.plot(xs, kC, lw=2.0, ls="-.", label=f"{labels[2]} (N={len(sC)})", color=INTRA3_COLORS["test"], alpha=0.95)
+    for s, lab in zip(series_list, labels):
+        s = pd.to_numeric(s, errors="coerce").dropna().astype(float)
+        if s.nunique() < 2:
+            continue
+        k = _safe_kde(s, xs)
+        if k is None:
+            continue
+        ax.plot(xs, k, lw=2.0, label=f"{lab} (N={len(s)})")
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Density")
@@ -245,34 +196,24 @@ def kde_plot_three(a: pd.Series, b: pd.Series, c: pd.Series,
     fig.savefig(FIG_DIR / filename, dpi=200)
     plt.close(fig)
 
-def kde_plot_two(a: pd.Series, b: pd.Series, title: str, filename: str, xlabel: str,
-                 percent: bool=False, balanced: bool=False, labels: Tuple[str,str]=None):
-    s1 = pd.to_numeric(a, errors="coerce").dropna()
-    s2 = pd.to_numeric(b, errors="coerce").dropna()
-    if balanced:
-        n = min(len(s1), len(s2))
-        if n >= 10:
-            s1 = s1.sample(n, random_state=7)
-            s2 = s2.sample(n, random_state=7)
-    if min(s1.nunique(), s2.nunique()) < 2:
-        print(f"[warn] Skipping KDE for {filename}: a series is constant.")
+def kde_plot_three(a: pd.Series, b: pd.Series, c: pd.Series, title: str, filename: str, xlabel: str, percent: bool=False, labels: Tuple[str, str, str]=("Train", "Validation", "Test")):
+    sA = pd.to_numeric(a, errors="coerce").dropna().astype(float)
+    sB = pd.to_numeric(b, errors="coerce").dropna().astype(float)
+    sC = pd.to_numeric(c, errors="coerce").dropna().astype(float)
+    if min(sA.nunique(), sB.nunique(), sC.nunique()) < 2:
         return
-    lims = _percentile_limits(s1, s2, p_lo=1.0, p_hi=99.0)
+    lims = _percentile_limits(sA, sB, sC, p_lo=1.0, p_hi=99.0)
     if not lims:
-        print(f"[warn] Skipping KDE for {filename}: invalid domain.")
         return
     xmin, xmax = lims
     xs = _shared_xs(xmin, xmax, 400)
-    k1 = _safe_kde(s1, xs)
-    k2 = _safe_kde(s2, xs)
-    if k1 is None or k2 is None:
-        print(f"[warn] Skipping KDE for {filename}: KDE failed.")
+    kA = _safe_kde(sA, xs); kB = _safe_kde(sB, xs); kC = _safe_kde(sC, xs)
+    if kA is None or kB is None or kC is None:
         return
-    fig, ax = plt.subplots(figsize=(7.2, 3.2))
-    lab1 = labels[0] if labels else REG_LABELS["bull"]
-    lab2 = labels[1] if labels else REG_LABELS["bear"]
-    ax.plot(xs, k1, label=f"{lab1} (N={len(s1)})", lw=2.0, color=REG_COLORS["bull"], alpha=0.95)
-    ax.plot(xs, k2, label=f"{lab2} (N={len(s2)})", lw=2.0, ls="--", color=REG_COLORS["bear"], alpha=0.95)
+    fig, ax = plt.subplots(figsize=(7.6, 3.2))
+    ax.plot(xs, kA, lw=2.0, label=f"{labels[0]} (N={len(sA)})", alpha=0.95)
+    ax.plot(xs, kB, lw=2.0, ls="--", label=f"{labels[1]} (N={len(sB)})", alpha=0.95)
+    ax.plot(xs, kC, lw=2.0, ls="-.", label=f"{labels[2]} (N={len(sC)})", alpha=0.95)
     ax.set_title(title); ax.set_xlabel(xlabel); ax.set_ylabel("Density")
     if percent:
         ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct))
@@ -283,38 +224,29 @@ def kde_plot_two(a: pd.Series, b: pd.Series, title: str, filename: str, xlabel: 
 def kde_plot_one(a: pd.Series, title: str, filename: str, xlabel: str, percent: bool=False):
     s = pd.to_numeric(a, errors="coerce").dropna()
     if s.nunique() < 2:
-        print(f"[warn] Skipping KDE for {filename}: a series is constant.")
         return
     lims = _percentile_limits(s, p_lo=1.0, p_hi=99.0)
     if not lims:
-        print(f"[warn] Skipping KDE for {filename}: invalid domain.")
         return
-    xmin, xmax = lims
-    xs = _shared_xs(xmin, xmax, 400)
+    xs = _shared_xs(lims[0], lims[1], 400)
     k = _safe_kde(s, xs)
     if k is None:
-        print(f"[warn] Skipping KDE for {filename}: KDE failed.")
         return
     fig, ax = plt.subplots(figsize=(7.2, 3.2))
-    ax.plot(xs, k, lw=2.0, color=REG_COLORS["intra"], alpha=0.95, label=f"{REG_LABELS['intra']} (N={len(s)})")
-    ax.set_title(title)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("Density")
+    ax.plot(xs, k, lw=2.0, alpha=0.95, label=f"{REG_LABELS['intra']} (N={len(s)})")
+    ax.set_title(title); ax.set_xlabel(xlabel); ax.set_ylabel("Density")
     if percent:
         ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct))
     ax.grid(True, which="both", axis="both", alpha=0.3, linestyle="--", linewidth=0.7)
     ax.legend(loc="upper right", frameon=False)
-    fig.tight_layout()
-    fig.savefig(FIG_DIR / filename, dpi=200)
-    plt.close(fig)
+    fig.tight_layout(); fig.savefig(FIG_DIR / filename, dpi=200); plt.close(fig)
 
 def bar_plot(values, labels, title, filename, ylabel, percent=False):
-    fig, ax = plt.subplots(figsize=(5, 3))
-    width = 0.25
-    gap = 0.35
+    fig, ax = plt.subplots(figsize=(6.6, 3.2))
+    width = 0.24
+    gap = 0.30
     x = np.arange(len(values)) * (width + gap)
-    colors = [REG_COLORS["bull"], REG_COLORS["bear"], REG_COLORS["intra"]][:len(values)]
-    bars = ax.bar(x, values, width=width, color=colors)
+    ax.bar(x, values, width=width)
     ymax = np.nanmax(values) if len(values) else 1.0
     if not np.isfinite(ymax):
         ymax = 1.0
@@ -325,22 +257,20 @@ def bar_plot(values, labels, title, filename, ylabel, percent=False):
     if percent:
         ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct))
     ax.grid(True, which="both", axis="y", alpha=0.3, linestyle="--", linewidth=0.7)
-    ax.legend(handles=bars, labels=labels, loc="upper right")
     fig.tight_layout()
     fig.savefig(FIG_DIR / filename, dpi=200)
     plt.close(fig)
 
 def bar_plot_grouped(groups, bars, values, title, filename, ylabel, percent=False):
-    fig, ax = plt.subplots(figsize=(7.6, 3.2))
-    width = 0.24
+    fig, ax = plt.subplots(figsize=(7.8, 3.2))
+    width = 0.22
     bar_gap = 0.06
-    group_gap = 0.44
+    group_gap = 0.40
     n_groups = len(groups)
     n_bars = len(bars)
     cluster_width = n_bars * width + (n_bars - 1) * bar_gap
     step = cluster_width + group_gap
     x0 = np.arange(n_groups) * step
-    palette = [REG_COLORS["bull"], REG_COLORS["bear"], REG_COLORS["intra"]]
     flat = []
     for v in values:
         v = np.asarray(v, dtype=float)
@@ -351,7 +281,7 @@ def bar_plot_grouped(groups, bars, values, title, filename, ylabel, percent=Fals
         ymax = 1.0
     for i in range(n_bars):
         xi = x0 + i * (width + bar_gap)
-        ax.bar(xi, values[i], width=width, label=bars[i], color=palette[i % len(palette)])
+        ax.bar(xi, values[i], width=width, label=bars[i])
     ax.set_ylim(0, ymax * 1.2)
     ax.set_xticks(x0 + cluster_width / 2 - width / 2, groups)
     ax.set_title(title)
@@ -359,79 +289,58 @@ def bar_plot_grouped(groups, bars, values, title, filename, ylabel, percent=Fals
     if percent:
         ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct))
     ax.grid(True, which="both", axis="y", alpha=0.3, linestyle="--", linewidth=0.7)
-    ax.legend(loc="upper right")
+    ax.legend(loc="upper right", frameon=False)
     fig.tight_layout()
     fig.savefig(FIG_DIR / filename, dpi=200)
     plt.close(fig)
 
-# ----------------------------- analyses -------------------------------- #
-
-def _log_ret(df: pd.DataFrame) -> pd.Series:
-    return df.groupby("tic")["close"].transform(lambda x: np.log(x / x.shift(1)))
-
-def analyze_log_returns(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False):
+def analyze_log_returns(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, include_intraday_on_daily=False):
     dfs = {k: v.copy() for k, v in frames.items()}
     for k in dfs:
         dfs[k]["log_ret"] = _log_ret(dfs[k])
-
     stats = lambda s: s.dropna().agg(["mean", "std", "skew", "kurt"])
     out = pd.concat(
         {
-            "Stable": stats(dfs["bull"]["log_ret"]),
-            "Volatile": stats(dfs["bear"]["log_ret"]),
-            "Intraday": stats(dfs["intra"]["log_ret"]),
+            REG_LABELS["bull"]:   stats(dfs["bull"]["log_ret"]),
+            REG_LABELS["bullv"]:  stats(dfs["bullv"]["log_ret"]),
+            REG_LABELS["bearish"]:stats(dfs["bearish"]["log_ret"]),
+            REG_LABELS["intra"]:  stats(dfs["intra"]["log_ret"]),
         }, axis=1
     ).T
     out["N"] = [
         dfs["bull"]["log_ret"].dropna().shape[0],
-        dfs["bear"]["log_ret"].dropna().shape[0],
+        dfs["bullv"]["log_ret"].dropna().shape[0],
+        dfs["bearish"]["log_ret"].dropna().shape[0],
         dfs["intra"]["log_ret"].dropna().shape[0],
     ]
     out = out[["mean","std","skew","kurt","N"]].round(6)
     print("\n=== Log-return summary ===")
     print(out.to_string())
 
-    s1, s2, s3 = (
+    s1, s2, s3, s4 = (
         dfs["bull"]["log_ret"].dropna(),
-        dfs["bear"]["log_ret"].dropna(),
+        dfs["bullv"]["log_ret"].dropna(),
+        dfs["bearish"]["log_ret"].dropna(),
         dfs["intra"]["log_ret"].dropna(),
     )
-    if min(len(s1), len(s2), len(s3)) > 2:
-        stat, p = fligner(s1, s2, s3, center="median")
+    if min(len(s1), len(s2), len(s3), len(s4)) > 2:
+        stat, p = fligner(s1, s2, s3, s4, center="median")
         print(f"\nFligner–Killeen test (variances): stat={stat:.3f}  p={p:.4e}")
     else:
         print("\nFligner–Killeen test: skipped (insufficient data)")
 
     if draw:
         T = titles(period)
-        A, B, C = build_intra_logret_all()
-        kde_plot_three(
-            A, B, C,
-            "Log-return density (Intraday, Train/Val/Test)",
-            "intra_kde_logret_all.png",
-            "Log return",
-            True,
-            labels=("Train", "Validation", "Test"),
-        )
-        kde_plot_two(
-            s1, s2,
-            T["logret_bb"],
-            f"{period}_kde_logret.png",
-            "Log return",
-            True, balanced,
-            labels=legend_labels(period),
-        )
-        kde_plot_one(
-            s3,
-            T["logret_intra"],
-            f"{period}_kde_logret_intra.png",
-            "Log return",
-            True,
-        )
+        kde_plot_many([s1, s2, s3] + ([s4] if include_intraday_on_daily else []),
+                      [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else []),
+                      T["logret_daily"], f"{period}_kde_logret_daily.png", "Log return", True)
+        F = _get_intra_frames_all(False)
+        A = _log_ret(F["train"]).dropna(); B = _log_ret(F["val"]).dropna(); C = _log_ret(F["test"]).dropna()
+        kde_plot_three(A, B, C, "Log-return density (Intraday, Train/Val/Test)", "intra_kde_logret_all.png", "Log return", True)
 
-def analyze_volatility(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False):
+def analyze_volatility(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, include_intraday_on_daily=False):
     dfs = {k: v.copy() for k, v in frames.items()}
-    for k in ["bull", "bear"]:
+    for k in ["bull", "bullv", "bearish"]:
         dfs[k]["lr"] = _log_ret(dfs[k])
         dfs[k]["vol"] = dfs[k].groupby("tic")["lr"].transform(lambda x: x.rolling(30, min_periods=10).std())
         dfs[k]["vol_ann"] = dfs[k]["vol"] * np.sqrt(252)
@@ -442,49 +351,36 @@ def analyze_volatility(frames: Dict[str, pd.DataFrame], period: str, draw=False,
 
     res = pd.DataFrame(
         {
-            "mean_vol": [dfs["bull"]["vol"].mean(), dfs["bear"]["vol"].mean(), dfs["intra"]["vol"].mean()],
-            "median_vol": [dfs["bull"]["vol"].median(), dfs["bear"]["vol"].median(), dfs["intra"]["vol"].median()],
-            "mean_vol_ann": [dfs["bull"]["vol_ann"].mean(), dfs["bear"]["vol_ann"].mean(), dfs["intra"]["vol_ann"].mean()],
+            "mean_vol": [dfs["bull"]["vol"].mean(), dfs["bullv"]["vol"].mean(), dfs["bearish"]["vol"].mean(), dfs["intra"]["vol"].mean()],
+            "median_vol": [dfs["bull"]["vol"].median(), dfs["bullv"]["vol"].median(), dfs["bearish"]["vol"].median(), dfs["intra"]["vol"].median()],
+            "mean_vol_ann": [dfs["bull"]["vol_ann"].mean(), dfs["bullv"]["vol_ann"].mean(), dfs["bearish"]["vol_ann"].mean(), dfs["intra"]["vol_ann"].mean()],
             "N": [
                 dfs["bull"]["vol"].dropna().shape[0],
-                dfs["bear"]["vol"].dropna().shape[0],
+                dfs["bullv"]["vol"].dropna().shape[0],
+                dfs["bearish"]["vol"].dropna().shape[0],
                 dfs["intra"]["vol"].dropna().shape[0],
             ],
         },
-        index=["Stable", "Volatile", "Intraday"],
+        index=[REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"], REG_LABELS["intra"]],
     ).round(6)
     print("\n=== Rolling volatility (30d daily; 390m intraday) ===")
     print(res.to_string())
 
     if draw:
         T = titles(period)
-        A, B, C = build_intra_vol_all()
-        kde_plot_three(
-            A, B, C,
-            "Rolling volatility σ, 390-minute window (Intraday, Train/Val/Test)",
-            "intra_kde_vol_all.png",
-            "σ (390-minute, intraday)",
-            True,
-            labels=("Train", "Validation", "Test"),
+        kde_plot_many(
+            [dfs["bull"]["vol"].dropna(), dfs["bullv"]["vol"].dropna(), dfs["bearish"]["vol"].dropna()] + ([dfs["intra"]["vol"].dropna()] if include_intraday_on_daily else []),
+            [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else []),
+            T["vol_daily"], f"{period}_kde_vol_daily.png", "σ (30-day, daily)", True
         )
-        kde_plot_two(
-            dfs["bull"]["vol"].dropna(),
-            dfs["bear"]["vol"].dropna(),
-            T["vol_bb"],
-            f"{period}_kde_vol.png",
-            "σ (30-day, daily)",
-            True, balanced,
-            labels=legend_labels(period),
-        )
-        kde_plot_one(
-            dfs["intra"]["vol"].dropna(),
-            T["vol_intra"],
-            f"{period}_kde_vol_intra.png",
-            "σ (390-minute, intraday)",
-            True,
-        )
+        F = _get_intra_frames_all(False)
+        def v(df):
+            r = _log_ret(df)
+            return df.assign(lr=r).groupby("tic")["lr"].transform(lambda x: x.rolling(390, min_periods=120).std())
+        A = v(F["train"]).dropna(); B = v(F["val"]).dropna(); C = v(F["test"]).dropna()
+        kde_plot_three(A, B, C, "Rolling volatility σ, 390-minute window (Intraday, Train/Val/Test)", "intra_kde_vol_all.png", "σ (390-minute, intraday)", True)
 
-def analyze_rsi_signals(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, ci=False):
+def analyze_rsi_signals(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, ci=False, include_intraday_on_daily=False):
     dfs = {k: v.sort_values(["tic", "timestamp"]).copy() for k, v in frames.items()}
     for k in dfs:
         dfs[k]["rsi_30"] = Sdf.retype(dfs[k].copy())["rsi_30"]
@@ -520,7 +416,12 @@ def analyze_rsi_signals(frames: Dict[str, pd.DataFrame], period: str, draw=False
         )
 
     out = pd.concat(
-        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])}, axis=1
+        {
+            REG_LABELS["bull"]: pack(dfs["bull"]),
+            REG_LABELS["bullv"]: pack(dfs["bullv"]),
+            REG_LABELS["bearish"]: pack(dfs["bearish"]),
+            REG_LABELS["intra"]: pack(dfs["intra"]),
+        }, axis=1
     ).T
     out.loc[:, ["mean_rsi", "p>70", "p<30", "p>70_CIlo", "p>70_CIhi", "p<30_CIlo", "p<30_CIhi"]] = out.loc[
         :, ["mean_rsi", "p>70", "p<30", "p>70_CIlo", "p>70_CIhi", "p<30_CIlo", "p<30_CIhi"]
@@ -530,33 +431,17 @@ def analyze_rsi_signals(frames: Dict[str, pd.DataFrame], period: str, draw=False
 
     if draw:
         T = titles(period)
-        A, B, C = build_intra_rsi_all()
-        kde_plot_three(
-            A, B, C,
-            "RSI(30) density (Intraday, Train/Val/Test)",
-            "intra_kde_rsi30_all.png",
-            "RSI (0–100)",
-            False,
-            labels=("Train", "Validation", "Test"),
+        kde_plot_many(
+            [dfs["bull"]["rsi_30"].dropna(), dfs["bullv"]["rsi_30"].dropna(), dfs["bearish"]["rsi_30"].dropna()] + ([dfs["intra"]["rsi_30"].dropna()] if include_intraday_on_daily else []),
+            [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else []),
+            T["rsi_daily"], f"{period}_kde_rsi_daily.png", "RSI (0–100)", False
         )
-        kde_plot_two(
-            dfs["bull"]["rsi_30"].dropna(),
-            dfs["bear"]["rsi_30"].dropna(),
-            T["rsi_bb"],
-            f"{period}_kde_rsi30.png",
-            "RSI (0–100)",
-            False, balanced,
-            labels=legend_labels(period),
-        )
-        kde_plot_one(
-            dfs["intra"]["rsi_30"].dropna(),
-            T["rsi_intra"],
-            f"{period}_kde_rsi30_intra.png",
-            "RSI (0–100)",
-            False,
-        )
+        F = _get_intra_frames_all(False)
+        def r(df): return Sdf.retype(df.sort_values(["tic","timestamp"]).copy())["rsi_30"]
+        A = r(F["train"]).dropna(); B = r(F["val"]).dropna(); C = r(F["test"]).dropna()
+        kde_plot_three(A, B, C, "RSI(30) density (Intraday, Train/Val/Test)", "intra_kde_rsi30_all.png", "RSI (0–100)", False)
 
-def analyze_bollinger_behavior(frames: Dict[str, pd.DataFrame], period: str, draw=False, ci=False):
+def analyze_bollinger_behavior(frames: Dict[str, pd.DataFrame], period: str, draw=False, ci=False, include_intraday_on_daily=False):
     dfs = {k: v.sort_values(["tic", "timestamp"]).copy() for k, v in frames.items()}
     for k in dfs:
         ss = Sdf.retype(dfs[k].copy())
@@ -594,34 +479,10 @@ def analyze_bollinger_behavior(frames: Dict[str, pd.DataFrame], period: str, dra
             }
         )
 
-    out = pd.concat({"Stable": g(dfs["bull"]), "Volatile": g(dfs["bear"]), "Intraday": g(dfs["intra"])}, axis=1).T
+    out = pd.concat({REG_LABELS["bull"]: g(dfs["bull"]), REG_LABELS["bullv"]: g(dfs["bullv"]), REG_LABELS["bearish"]: g(dfs["bearish"]), REG_LABELS["intra"]: g(dfs["intra"])}, axis=1).T
     out = out.round(4)
     print("\n=== Bollinger breakouts ===")
     print(out.to_string(index=True))
-    """
-    if draw:
-        groups = ["Stable", "Volatile", "Intraday"]
-        vals_u = [out.loc[g, "rate_upper"] for g in groups]
-        vals_l = [out.loc[g, "rate_lower"] for g in groups]
-        bar_plot_grouped(
-            groups=groups,
-            bars=["Upper"],
-            values=[vals_u],
-            title=f"Upper-band breakout rate ({period})",
-            filename=f"{period}_boll_upper_rate.png",
-            ylabel="Share of observations",
-            percent=True,
-        )
-        bar_plot_grouped(
-            groups=groups,
-            bars=["Lower"],
-            values=[vals_l],
-            title=f"Lower-band breakout rate ({period})",
-            filename=f"{period}_boll_lower_rate.png",
-            ylabel="Share of observations",
-            percent=True,
-        )
-    """
     return out
 
 def analyze_correlation(frames: Dict[str, pd.DataFrame], period: str, draw=False):
@@ -636,27 +497,18 @@ def analyze_correlation(frames: Dict[str, pd.DataFrame], period: str, draw=False
         c = p.corr()
         return c.values[np.triu_indices_from(c, 1)].mean()
 
-    vals = {"Stable": avg(dfs["bull"]), "Volatile": avg(dfs["bear"]), "Intraday": avg(dfs["intra"])}
+    vals = {
+        REG_LABELS["bull"]: avg(dfs["bull"]),
+        REG_LABELS["bullv"]: avg(dfs["bullv"]),
+        REG_LABELS["bearish"]: avg(dfs["bearish"]),
+        REG_LABELS["intra"]: avg(dfs["intra"]),
+    }
     out = pd.DataFrame.from_dict(vals, orient="index", columns=["avg_corr"]).round(5)
-
     print("\n=== Avg pair-wise return correlation ===")
     print(out.to_string())
-    """
-    if draw and out["avg_corr"].notna().all():
-        groups = list(out.index)
-        bar_plot_grouped(
-            groups=groups,
-            bars=["Avg corr"],
-            values=[[out.loc[g, "avg_corr"] for g in groups]],
-            title=f"Average pair-wise correlation ({period})",
-            filename=f"{period}_avg_corr.png",
-            ylabel="Correlation",
-            percent=False,
-        )
-    """
     return out
 
-def analyze_volume(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False):
+def analyze_volume(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, include_intraday_on_daily=False):
     dfs = {k: v.copy() for k, v in frames.items()}
     for k in dfs:
         dfs[k]["log_ret"] = _log_ret(dfs[k])
@@ -671,37 +523,25 @@ def analyze_volume(frames: Dict[str, pd.DataFrame], period: str, draw=False, bal
             }
         )
 
-    out = pd.concat({"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])}, axis=1).T.round(4)
+    out = pd.concat({
+        REG_LABELS["bull"]: pack(dfs["bull"]),
+        REG_LABELS["bullv"]: pack(dfs["bullv"]),
+        REG_LABELS["bearish"]: pack(dfs["bearish"]),
+        REG_LABELS["intra"]: pack(dfs["intra"])
+    }, axis=1).T.round(4)
     print("\n=== Volume stats ===")
     print(out.to_string())
 
     if draw:
         T = titles(period)
-        A, B, C = build_intra_volume_all()
-        kde_plot_three(
-            A, B, C,
-            "log(1+volume) density (Intraday, Train/Val/Test)",
-            "intra_kde_volume_all.png",
-            "log(1+volume)",
-            False,
-            labels=("Train", "Validation", "Test"),
+        kde_plot_many(
+            [np.log1p(dfs["bull"]["volume"]), np.log1p(dfs["bullv"]["volume"]), np.log1p(dfs["bearish"]["volume"])] + ([np.log1p(dfs["intra"]["volume"])] if include_intraday_on_daily else []),
+            [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else []),
+            T["volu_daily"], f"{period}_kde_volume_daily.png", "log(1+volume)", False
         )
-        kde_plot_two(
-            np.log1p(dfs["bull"]["volume"]),
-            np.log1p(dfs["bear"]["volume"]),
-            T["volu_bb"],
-            f"{period}_kde_volume.png",
-            "log(1+volume)",
-            False, balanced,
-            labels=legend_labels(period),
-        )
-        kde_plot_one(
-            np.log1p(dfs["intra"]["volume"]),
-            T["volu_intra"],
-            f"{period}_kde_volume_intra.png",
-            "log(1+volume)",
-            False,
-        )
+        F = _get_intra_frames_all(False)
+        A = np.log1p(F["train"]["volume"]).dropna(); B = np.log1p(F["val"]["volume"]).dropna(); C = np.log1p(F["test"]["volume"]).dropna()
+        kde_plot_three(A, B, C, "log(1+volume) density (Intraday, Train/Val/Test)", "intra_kde_volume_all.png", "log(1+volume)", False)
 
 def mahal_turbulence_from_df(df: pd.DataFrame, window: int) -> pd.Series:
     price = df.pivot(index="timestamp", columns="tic", values="close").sort_index()
@@ -725,16 +565,19 @@ def mahal_turbulence_from_df(df: pd.DataFrame, window: int) -> pd.Series:
             continue
     return tser
 
-def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False):
+def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, include_intraday_on_daily=False):
     t_bull = mahal_turbulence_from_df(frames["bull"], 252)
-    t_bear = mahal_turbulence_from_df(frames["bear"], 252)
+    t_bullv = mahal_turbulence_from_df(frames["bullv"], 252)
+    t_bear = mahal_turbulence_from_df(frames["bearish"], 252)
     t_intra = mahal_turbulence_from_df(frames["intra"], 390)
 
-    bs, be = BULL_PERIODS[period]
-    cs, ce = BEAR_PERIODS[period]
+    bs, be = BULL_STABLE_PERIODS[period]
+    bv_s, bv_e = BULL_VOLATILE_PERIODS[period]
+    br_s, br_e = BEARISH_PERIODS[period]
     is_, ie = INTRA_PERIODS[period]
     t_bull = t_bull.loc[(t_bull.index >= pd.Timestamp(bs)) & (t_bull.index <= pd.Timestamp(be))]
-    t_bear = t_bear.loc[(t_bear.index >= pd.Timestamp(cs)) & (t_bear.index <= pd.Timestamp(ce))]
+    t_bullv = t_bullv.loc[(t_bullv.index >= pd.Timestamp(bv_s)) & (t_bullv.index <= pd.Timestamp(bv_e))]
+    t_bear = t_bear.loc[(t_bear.index >= pd.Timestamp(br_s)) & (t_bear.index <= pd.Timestamp(br_e))]
     t_intra = t_intra.loc[(t_intra.index >= pd.Timestamp(is_)) & (t_intra.index <= pd.Timestamp(ie))]
 
     def stats(s: pd.Series):
@@ -743,143 +586,31 @@ def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False,
             return pd.Series({"mean": np.nan, "median": np.nan, "p95": np.nan, "max": np.nan, "N": 0})
         return pd.Series({"mean": s.mean(), "median": s.median(), "p95": s.quantile(0.95), "max": s.max(), "N": len(s)})
 
-    out = pd.concat({"Stable": stats(t_bull), "Volatile": stats(t_bear), "Intraday": stats(t_intra)}, axis=1).T.round(3)
+    out = pd.concat({
+        REG_LABELS["bull"]: stats(t_bull),
+        REG_LABELS["bullv"]: stats(t_bullv),
+        REG_LABELS["bearish"]: stats(t_bear),
+        REG_LABELS["intra"]: stats(t_intra)
+    }, axis=1).T.round(3)
     print("\n=== Turbulence index statistics ===")
     print(out.to_string())
 
-    if draw and min(len(t_bull.dropna()), len(t_bear.dropna()), len(t_intra.dropna())) > 1:
+    if draw and min(len(t_bull.dropna()), len(t_bullv.dropna()), len(t_bear.dropna())) > 1:
         T = titles(period)
-        A, B, C = build_intra_turb_all()
-        kde_plot_three(
-            A, B, C,
-            "Turbulence index density (Intraday, Train/Val/Test)",
-            "intra_kde_turb_all.png",
-            "Turbulence index",
-            False,
-            labels=("Train", "Validation", "Test"),
+        kde_plot_many(
+            [t_bull.dropna(), t_bullv.dropna(), t_bear.dropna()] + ([t_intra.dropna()] if include_intraday_on_daily else []),
+            [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else []),
+            T["turb_daily"], f"{period}_kde_turb_daily.png", "Turbulence index", False
         )
-        kde_plot_two(
-            t_bull.dropna(),
-            t_bear.dropna(),
-            T["turb_bb"],
-            f"{period}_kde_turb.png",
-            "Turbulence index",
-            False, balanced,
-            labels=legend_labels(period),
-        )
-        kde_plot_one(
-            t_intra.dropna(),
-            T["turb_intra"],
-            f"{period}_kde_turb_intra.png",
-            "Turbulence index",
-            False,
-        )
-def analyze_ma_trend(frames: Dict[str, pd.DataFrame], period: str, draw=False):
-    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
-    def pack(df):
-        ss = Sdf.retype(df.copy())
-        df["ema50"] = ss["close_50_ema"]
-        df["ema200"] = ss["close_200_ema"]
-        df["above200"] = df["close"] > df["ema200"]
-        df["golden"] = (df["ema50"] > df["ema200"]) & (df["ema50"].shift(1) <= df["ema200"].shift(1))
-        df["death"] = (df["ema50"] < df["ema200"]) & (df["ema50"].shift(1) >= df["ema200"].shift(1))
-        valid = df[["ema50","ema200"]].notna().all(axis=1)
-        n = int(valid.sum())
-        p_above = float(df.loc[valid, "above200"].mean()) if n else np.nan
-        n_gold = int(df.loc[valid, "golden"].sum())
-        n_death = int(df.loc[valid, "death"].sum())
-        return pd.Series({"p_above_200": p_above, "golden_cross": n_gold, "death_cross": n_death, "N": n})
-    out = pd.concat(
-        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
-        axis=1
-    ).T.round(4)
-    print("\n=== EMA trend proxies (50/200) ===")
-    print(out.to_string())
-    if draw:
-        T = titles(period)
-        vals = [float(out.loc["Stable","p_above_200"]), float(out.loc["Volatile","p_above_200"]), float(out.loc["Intraday","p_above_200"])]
-        labs = ["Stable","Volatile","Intraday"]
-        bar_plot(vals, labs, T["bar_ma"], f"{period}_bar_ma.png", titles(period)["y_share"], percent=True)
-    return out
+        F = _get_intra_frames_all(True)
+        A = mahal_turbulence_from_df(F["train"], 390); B = mahal_turbulence_from_df(F["val"], 390); C = mahal_turbulence_from_df(F["test"], 390)
+        def _mask_intra_to_period(s: pd.Series, period_key: str) -> pd.Series:
+            is2, ie2 = INTRA_PERIODS[period_key]
+            idx_lo, idx_hi = pd.Timestamp(is2), pd.Timestamp(ie2)
+            return s.loc[(s.index >= idx_lo) & (s.index <= idx_hi)]
+        A = _mask_intra_to_period(A, "train").dropna(); B = _mask_intra_to_period(B, "val").dropna(); C = _mask_intra_to_period(C, "test").dropna()
+        kde_plot_three(A, B, C, "Turbulence index density (Intraday, Train/Val/Test)", "intra_kde_turb_all.png", "Turbulence index", False)
 
-def analyze_macd(frames: Dict[str, pd.DataFrame], period: str, draw=False):
-    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
-    def pack(df):
-        ss = Sdf.retype(df.copy())
-        df["macd"] = ss["macd"]
-        df["macds"] = ss["macds"]
-        valid = df[["macd","macds"]].notna().all(axis=1)
-        n = int(valid.sum())
-        bull_share = float((df.loc[valid, "macd"] > df.loc[valid, "macds"]).mean()) if n else np.nan
-        cross_up = int(((df["macd"] > df["macds"]) & (df["macd"].shift(1) <= df["macds"].shift(1)) & valid).sum())
-        cross_dn = int(((df["macd"] < df["macds"]) & (df["macd"].shift(1) >= df["macds"].shift(1)) & valid).sum())
-        return pd.Series({"p_macd>signal": bull_share, "cross_up": cross_up, "cross_dn": cross_dn, "N": n})
-    out = pd.concat(
-        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
-        axis=1
-    ).T.round(4)
-    print("\n=== MACD signals ===")
-    print(out.to_string())
-    if draw:
-        T = titles(period)
-        vals = [float(out.loc["Stable","p_macd>signal"]), float(out.loc["Volatile","p_macd>signal"]), float(out.loc["Intraday","p_macd>signal"])]
-        labs = ["Stable","Volatile","Intraday"]
-        bar_plot(vals, labs, T["bar_macd"], f"{period}_bar_macd.png", titles(period)["y_share"], percent=True)
-    return out
-
-def analyze_adx(frames: Dict[str, pd.DataFrame], period: str, draw=False):
-    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
-    def pack(df):
-        ss = Sdf.retype(df.copy())
-        df["adx"] = ss["adx"]
-        df["+di"] = ss["pdi"]
-        df["-di"] = ss["mdi"]
-        valid = df["adx"].notna()
-        n = int(valid.sum())
-        strong = float((df.loc[valid, "adx"] > 25).mean()) if n else np.nan
-        up_dir = float(((df.loc[valid, "+di"] > df.loc[valid, "-di"]) & (df.loc[valid, "adx"] > 25)).mean()) if n else np.nan
-        dn_dir = float(((df.loc[valid, "+di"] < df.loc[valid, "-di"]) & (df.loc[valid, "adx"] > 25)).mean()) if n else np.nan
-        return pd.Series({"p_adx>25": strong, "p_trend_up_strong": up_dir, "p_trend_dn_strong": dn_dir, "N": n})
-    out = pd.concat(
-        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
-        axis=1
-    ).T.round(4)
-    print("\n=== ADX trend strength ===")
-    print(out.to_string())
-    if draw:
-        T = titles(period)
-        vals = [float(out.loc["Stable","p_adx>25"]), float(out.loc["Volatile","p_adx>25"]), float(out.loc["Intraday","p_adx>25"])]
-        labs = ["Stable","Volatile","Intraday"]
-        bar_plot(vals, labs, T["bar_adx"], f"{period}_bar_adx.png", titles(period)["y_share"], percent=True)
-    return out
-
-def analyze_trend_slope(frames: Dict[str, pd.DataFrame], period: str, window=60, draw=False):
-    dfs = {k: df.sort_values(["tic", "timestamp"]).copy() for k, df in frames.items()}
-    def slope_win(s):
-        y = np.log(s.values)
-        x = np.arange(len(y))
-        if len(y) < 2:
-            return np.nan
-        A = np.vstack([x, np.ones_like(x)]).T
-        b, a = np.linalg.lstsq(A, y, rcond=None)[0]
-        return b
-    def pack(df):
-        r = df.groupby("tic")["close"].rolling(window, min_periods=window//2).apply(slope_win, raw=False).reset_index(name="slope")
-        m = float(r["slope"].mean())
-        p_pos = float((r["slope"] > 0).mean())
-        return pd.Series({"mean_slope": m, "p_slope>0": p_pos})
-    out = pd.concat(
-        {"Stable": pack(dfs["bull"]), "Volatile": pack(dfs["bear"]), "Intraday": pack(dfs["intra"])},
-        axis=1
-    ).T.round(6)
-    print(f"\n=== Log-price slope (window={window}) ===")
-    print(out.to_string())
-    if draw:
-        T = titles(period)
-        vals = [float(out.loc["Stable","p_slope>0"]), float(out.loc["Volatile","p_slope>0"]), float(out.loc["Intraday","p_slope>0"])]
-        labs = ["Stable","Volatile","Intraday"]
-        bar_plot(vals, labs, T["bar_slope"], f"{period}_bar_slope.png", titles(period)["y_share"], percent=True)
-    return out
 
 def compute_bollinger_rates(frames: Dict[str, pd.DataFrame]):
     outs = {}
@@ -897,28 +628,21 @@ def compute_bollinger_rates(frames: Dict[str, pd.DataFrame]):
         outs[key] = (ru, rl)
     return outs
 
-def plot_bollinger_rates_all():
+def plot_bollinger_rates_all(include_intraday_on_daily=False):
     periods = ["train", "val", "test"]
-    bull_u, bear_u, intra_u = [], [], []
-    bull_l, bear_l, intra_l = [], [], []
+    bull_u, bullv_u, bear_u, intra_u = [], [], [], []
+    bull_l, bullv_l, bear_l, intra_l = [], [], [], []
     for p in periods:
         frames = get_period_frames(p)
         r = compute_bollinger_rates(frames)
-        bull_u.append(r["bull"][0]); bear_u.append(r["bear"][0]); intra_u.append(r["intra"][0])
-        bull_l.append(r["bull"][1]); bear_l.append(r["bear"][1]); intra_l.append(r["intra"][1])
-    bars = ["Stable", "Volatile", "Intraday"]
-    vals_upper = [bull_u, bear_u, intra_u]
-    vals_lower = [bull_l, bear_l, intra_l]
-    bar_plot_grouped(
-        groups=periods, bars=bars, values=vals_upper,
-        title="Upper-band breakout rate", filename="boll_upper_rate_all.png",
-        ylabel="Share of observations", percent=True
-    )
-    bar_plot_grouped(
-        groups=periods, bars=bars, values=vals_lower,
-        title="Lower-band breakout rate", filename="boll_lower_rate_all.png",
-        ylabel="Share of observations", percent=True
-    )
+        bull_u.append(r["bull"][0]); bullv_u.append(r["bullv"][0]); bear_u.append(r["bearish"][0])
+        bull_l.append(r["bull"][1]); bullv_l.append(r["bullv"][1]); bear_l.append(r["bearish"][1])
+        intra_u.append(r["intra"][0]); intra_l.append(r["intra"][1])
+    bars_daily = [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else [])
+    vals_upper = [bull_u, bullv_u, bear_u] + ([intra_u] if include_intraday_on_daily else [])
+    vals_lower = [bull_l, bullv_l, bear_l] + ([intra_l] if include_intraday_on_daily else [])
+    bar_plot_grouped(groups=periods, bars=bars_daily, values=vals_upper, title="Upper-band breakout rate", filename="boll_upper_rate_all.png", ylabel="Share of observations", percent=True)
+    bar_plot_grouped(groups=periods, bars=bars_daily, values=vals_lower, title="Lower-band breakout rate", filename="boll_lower_rate_all.png", ylabel="Share of observations", percent=True)
 
 def compute_avg_corr(frames: Dict[str, pd.DataFrame]):
     def avg(df):
@@ -929,21 +653,18 @@ def compute_avg_corr(frames: Dict[str, pd.DataFrame]):
             return np.nan
         c = p.corr()
         return c.values[np.triu_indices_from(c, 1)].mean()
-    return dict(bull=avg(frames["bull"]), bear=avg(frames["bear"]), intra=avg(frames["intra"]))
+    return dict(bull=avg(frames["bull"]), bullv=avg(frames["bullv"]), bearish=avg(frames["bearish"]), intra=avg(frames["intra"]))
 
-def plot_avg_corr_all():
+def plot_avg_corr_all(include_intraday_on_daily=False):
     periods = ["train", "val", "test"]
-    bull, bear, intra = [], [], []
+    bull, bullv, bear, intra = [], [], [], []
     for p in periods:
         frames = get_period_frames(p)
         vals = compute_avg_corr(frames)
-        bull.append(vals["bull"]); bear.append(vals["bear"]); intra.append(vals["intra"])
-    bars = ["Stable", "Volatile", "Intraday"]
-    bar_plot_grouped(
-        groups=periods, bars=bars, values=[bull, bear, intra],
-        title="Average pair-wise correlation", filename="avg_corr_all.png",
-        ylabel="Correlation", percent=False
-    )
+        bull.append(vals["bull"]); bullv.append(vals["bullv"]); bear.append(vals["bearish"]); intra.append(vals["intra"])
+    bars = [REG_LABELS["bull"], REG_LABELS["bullv"], REG_LABELS["bearish"]] + ([REG_LABELS["intra"]] if include_intraday_on_daily else [])
+    series = [bull, bullv, bear] + ([intra] if include_intraday_on_daily else [])
+    bar_plot_grouped(groups=periods, bars=bars, values=series, title="Average pair-wise correlation", filename="avg_corr_all.png", ylabel="Correlation", percent=False)
 
 ANALYSIS_FUNCS = {
     "log_ret": analyze_log_returns,
@@ -953,20 +674,16 @@ ANALYSIS_FUNCS = {
     "volume": analyze_volume,
     "corr": analyze_correlation,
     "turb": analyze_turbulence,
-    "ma": analyze_ma_trend,
-    "macd": analyze_macd,
-    "adx": analyze_adx,
-    "slope": analyze_trend_slope,
 }
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Statistical analysis for DJIA across Stable/Volatile/Intraday.")
+    p = argparse.ArgumentParser(description="Statistical analysis for DJIA across Bullish Stable/Volatile/Bearish/Intraday.")
     p.add_argument("--mode", choices=list(ANALYSIS_FUNCS)+["all"], default="all")
     p.add_argument("--period", choices=["train","val","test"], default="train")
     p.add_argument("--draw", type=str, choices=["true","false"], default="false")
     p.add_argument("--balanced-kde", type=str, choices=["true","false"], default="false")
     p.add_argument("--ci", type=str, choices=["true","false"], default="true")
-
+    p.add_argument("--include-intraday-on-daily", type=str, choices=["true","false"], default="false")
     return p.parse_args()
 
 if __name__ == "__main__":
@@ -976,43 +693,36 @@ if __name__ == "__main__":
     draw_flag = True if args.mode == "all" else (args.draw.lower() == "true")
     balanced = args.balanced_kde.lower() == "true"
     ci_flag = args.ci.lower() == "true"
+    incl_intra = args.include_intraday_on_daily.lower() == "true"
 
     if args.mode == "all":
-        ANALYSIS_FUNCS["log_ret"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced)
-        ANALYSIS_FUNCS["volatility"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced)
-        ANALYSIS_FUNCS["rsi"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, ci_flag)
-        ANALYSIS_FUNCS["boll"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, ci_flag)
-        ANALYSIS_FUNCS["volume"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced)
+        ANALYSIS_FUNCS["log_ret"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, incl_intra)
+        ANALYSIS_FUNCS["volatility"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, incl_intra)
+        ANALYSIS_FUNCS["rsi"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, ci_flag, incl_intra)
+        ANALYSIS_FUNCS["boll"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, ci_flag, incl_intra)
+        ANALYSIS_FUNCS["volume"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, incl_intra)
         ANALYSIS_FUNCS["corr"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
-        ANALYSIS_FUNCS["turb"](frames_buf, args.period, draw_flag, balanced)
-        """ANALYSIS_FUNCS["ma"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
-        ANALYSIS_FUNCS["macd"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
-        ANALYSIS_FUNCS["adx"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
-        ANALYSIS_FUNCS["slope"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)"""
+        ANALYSIS_FUNCS["turb"](frames_buf, args.period, draw_flag, balanced, incl_intra)
 
         if draw_flag:
             try:
-                plot_bollinger_rates_all()
+                plot_bollinger_rates_all(incl_intra)
             except Exception as e:
                 print(f"[warn] plot_bollinger_rates_all failed: {e}")
             try:
-                plot_avg_corr_all()
+                plot_avg_corr_all(incl_intra)
             except Exception as e:
                 print(f"[warn] plot_avg_corr_all failed: {e}")
     else:
         fn = ANALYSIS_FUNCS[args.mode]
         if args.mode in {"log_ret", "volatility", "volume"}:
-            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced)
+            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, incl_intra)
         elif args.mode == "rsi":
-            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, ci_flag)
+            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, ci_flag, incl_intra)
         elif args.mode == "boll":
-            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, ci_flag)
-        elif args.mode == "corr":
+            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, ci_flag, incl_intra)
+        elif args.mode in {"corr"}:
             fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         elif args.mode == "turb":
-            fn(frames_buf, args.period, draw_flag, balanced)
-        elif args.mode in {"ma", "macd", "adx"}:
-            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
-        elif args.mode == "slope":
-            fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
+            fn(frames_buf, args.period, draw_flag, balanced, incl_intra)
 
