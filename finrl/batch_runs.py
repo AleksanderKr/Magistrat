@@ -2,6 +2,12 @@ import os, json, shutil, datetime, argparse
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
+import matplotlib as mpl
+mpl.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
+from finrl.meta.data_processor import DataProcessor
+
 
 from finrl.meta.env_stock_trading.env_stocktrading_np_test import DailyTradingTestEnv
 from finrl.meta.env_stock_trading.env_stocktrading_np_train import DailyTradingTrainEnv
@@ -88,7 +94,6 @@ def _pick_env_and_dates(task: str, freq: str, dataset: str):
             s_test, e_test = BEAR2008_TEST_START_DATE, BEAR2008_TEST_END_DATE
         else:
             raise ValueError("Use 'stable' or 'crisis' or 'bear'")
-
     if task == "trading":
         if freq == "intraday":
             env_train, env_test = IntradayTradingTrainEnv, IntradayTradingTestEnv
@@ -117,47 +122,46 @@ def _pick_env_and_dates(task: str, freq: str, dataset: str):
         env_extra_test = {**env_extra_train, "if_train": False}
     else:
         raise ValueError("task ∈ {'trading','allocation'}")
-
     return env_train, env_test, interval, s_train, e_train, s_test, e_test, env_extra_train, env_extra_test
 
 def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
              task: str, freq: str, dataset: str, log_file: str):
     erl_params = ERL_FIXED_PARAMS.copy()
     erl_params["seed"] += run_idx
-
     env_train, env_test, interval, s_train, e_train, s_test, e_test, env_extra_train, env_extra_test = \
         _pick_env_and_dates(task, freq, dataset)
-
     cwd = os.path.join(series_dir, f"trial_{run_idx:03d}")
     os.makedirs(cwd, exist_ok=True)
-
     with open(os.path.join(cwd, "params.json"), "w") as f:
         json.dump({
             "erl": erl_params,
             "task": task, "freq": freq, "dataset": dataset,
             "interval": interval,
-            "dates": dict(train=(s_train, e_train), test=(s_test, e_test))
+            "dates": dict(train=(s_train, e_train), test=(s_test, e_test)),
+            "series": series_tag
         }, f, indent=2)
+
+    tickers = _filter_tickers_intersection(
+        DOW_30_TICKER, "yahoofinance", interval, s_train, e_train, s_test, e_test
+    )
 
     train(
         start_date=s_train, end_date=e_train,
-        ticker_list=DOW_30_TICKER, data_source="yahoofinance",
+        ticker_list=tickers, data_source="yahoofinance",
         time_interval=interval, technical_indicator_list=INDICATORS,
         drl_lib="elegantrl", env=env_train, model_name=model_name,
-        cwd=cwd, erl_params=erl_params, break_step=BREAK_STEP,
+        cwd=cwd, erl_params=erl_params, break_step=1e5,
         env_extra=env_extra_train,
     )
-
     assets, sharpe, cagr, agent_vs_bnh, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd = test(
         start_date=s_test, end_date=e_test,
-        ticker_list=DOW_30_TICKER, data_source="yahoofinance",
+        ticker_list=tickers, data_source="yahoofinance",
         time_interval=interval, technical_indicator_list=INDICATORS,
         drl_lib="elegantrl", env=env_test, model_name=model_name,
         cwd=cwd, net_dimension=erl_params["net_dimension"],
         env_extra=env_extra_test,
     )
     ret = assets[-1] / assets[0] - 1
-
     append_log({
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
         "series":    series_tag,
@@ -176,14 +180,127 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
             "task": task, "freq": freq, "dataset": dataset
         })
     }, log_file)
-
     best_runs.append((ret, sharpe, cwd))
     best_runs.sort(key=lambda t: t[0], reverse=True)
     while len(best_runs) > TOP_K:
         _, _, path_to_del = best_runs.pop()
         shutil.rmtree(path_to_del, ignore_errors=True)
-
     return ret, sharpe
+
+def _is_intraday(freq: str) -> bool:
+    return freq == "intraday"
+
+def _stack_curves(series_dir: str):
+    assets, bnhs = [], []
+    trials = sorted([d for d in os.listdir(series_dir) if d.startswith("trial_")])
+    for t in trials:
+        p_assets = os.path.join(series_dir, t, "assets.npy")
+        p_bnh    = os.path.join(series_dir, t, "bnh.npy")
+        if os.path.isfile(p_assets) and os.path.isfile(p_bnh):
+            a = np.load(p_assets)
+            b = np.load(p_bnh)
+            n = min(len(a), len(b))
+            assets.append(a[:n])
+            bnhs.append(b[:n])
+    if not assets:
+        return None, None
+    L = min(map(len, assets))
+    assets = np.stack([x[:L] for x in assets], axis=0)
+    bnh    = np.median(np.stack([x[:L] for x in bnhs], axis=0), axis=0)
+    return assets, bnh
+
+def _aggregate_equity(curves: np.ndarray, intraday: bool, start_date: str):
+    norm = curves / curves[:, [0]]
+    mean = norm.mean(axis=0)
+    median = np.median(norm, axis=0)
+    p10, p90 = np.percentile(norm, [10, 90], axis=0)
+    n = mean.shape[0]
+    if intraday:
+        x = np.arange(n)
+    else:
+        x = pd.bdate_range(start=start_date, periods=n)
+    return x, mean, median, p10, p90
+
+def _plot_equity_band(curves: np.ndarray, ref_curve: np.ndarray, path: str,
+                      intraday: bool, start_date: str):
+    x, mean, median, p10, p90 = _aggregate_equity(curves, intraday, start_date)
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    ax.fill_between(x, p10, p90, alpha=0.25, label="10–90%")
+    ax.plot(x, mean, linewidth=1.8, label="Mean")
+    ax.plot(x, median, linewidth=1.2, linestyle="--", label="Median")
+    ref = ref_curve / ref_curve[0]
+    if len(ref) != len(mean):
+        ref = ref[:len(mean)]
+    ax.plot(x, ref, linewidth=1.2, linestyle=":", label="Buy & Hold")
+    ax.set_xlabel("Step" if intraday else "Date")
+    ax.set_ylabel("Cumulative return")
+    ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
+    if not intraday:
+        ax.set_xlim(x[0], x[-1])
+        fig.autofmt_xdate()
+    ax.grid(True, which="major", linestyle="--", alpha=0.6)
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+
+def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, intraday: bool):
+    rows = []
+    steps_per_year = 252 if not intraday else 252*390
+    for a in curves:
+        n = min(len(a), len(ref_curve))
+        a = a[:n].astype(float)
+        b = ref_curve[:n].astype(float)
+        ret = a[-1]/a[0] - 1.0
+        rets = np.diff(a)/a[:-1]
+        vol = rets.std(ddof=0) * np.sqrt(steps_per_year) if rets.size else np.nan
+        cagr = (a[-1]/a[0])**(steps_per_year/max(1, rets.size)) - 1 if rets.size else np.nan
+        mdd = (a/np.maximum.accumulate(a) - 1).min()
+        bret = b[-1]/b[0]
+        alpha = a[-1]/(a[0]*bret) - 1
+        rf = 0.0
+        sharpe = ((rets.mean() - rf/steps_per_year) / rets.std(ddof=1) * np.sqrt(steps_per_year)) if rets.std(ddof=1) > 0 else np.nan
+        rows.append((ret, cagr, vol, mdd, sharpe, alpha))
+    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Alpha_vs_BnH"])
+    return df
+
+def _filter_tickers_intersection(tickers, data_source, interval, s_train, e_train, s_test, e_test):
+    dp = DataProcessor(data_source)
+    df_tr = dp.clean_data(dp.download_data(tickers, s_train, e_train, interval))
+    df_te = dp.clean_data(dp.download_data(tickers, s_test,  e_test,  interval))
+    have_tr = set(df_tr["tic"].unique())
+    have_te = set(df_te["tic"].unique())
+    keep = [t for t in tickers if t in have_tr and t in have_te]
+    return keep
+
+def _print_agg_table(df: pd.DataFrame):
+    cols = ["EpisodeReturn","CAGR","AnnVol","MaxDD","Sharpe","Alpha_vs_BnH"]
+    mean = df[cols].mean()
+    std  = df[cols].std(ddof=0)
+    widths = {c: max(len(c), 12) for c in cols}
+    header = " | ".join([c.ljust(widths[c]) for c in cols])
+    sep = "-+-".join(["-"*widths[c] for c in cols])
+    print("\n=== Aggregate metrics (mean ± std) ===")
+    print(header)
+    print(sep)
+    row = " | ".join([f"{mean[c]:.6f} ± {std[c]:.6f}".ljust(widths[c]) for c in cols])
+    print(row)
+
+
+def aggregate_and_plot(series_dir: str, freq: str, start_date_daily: str, out_prefix: str):
+    curves, bnh = _stack_curves(series_dir)
+    if curves is None:
+        print("No trials found for aggregation.")
+        return
+    intraday = _is_intraday(freq)
+    _plot_equity_band(curves, bnh, os.path.join(series_dir, f"{out_prefix}_EquityBand.jpg"),
+                      intraday, start_date_daily)
+    df = _summarise_metrics_from_curves(curves, bnh, intraday)
+    df.to_csv(os.path.join(series_dir, f"{out_prefix}_metrics_all.csv"), index=False)
+    desc = df.describe()
+    desc.to_csv(os.path.join(series_dir, f"{out_prefix}_metrics_desc.csv"), index=True)
+    _print_agg_table(df)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -193,24 +310,38 @@ if __name__ == "__main__":
     parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
     parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
     parser.add_argument("--dataset", choices=["stable", "crisis", "intraday", "bear"], default="stable")
+    parser.add_argument("--aggregate_only", action="store_true")
     args = parser.parse_args()
 
     LOG_FILE = f"fixed_{args.task}_{args.freq}_{args.dataset}.xlsx"
-    series_tag = f"FIXED_{args.model}_{args.task}_{args.freq}_{args.dataset}_{args.runs}runs_{args.note}"
+    series_tag = f"FIXED_{args.model}_{args.task}_{args.freq}_{args.dataset}_runs_{args.note}"
     series_dir = os.path.join("fixed_runs", series_tag)
     os.makedirs(series_dir, exist_ok=True)
-    init_log(series_tag, LOG_FILE)
+    if not args.aggregate_only:
+        init_log(series_tag, LOG_FILE)
+        returns, sharpes = [], []
+        for i in range(args.runs):
+            r, s = run_once(i, series_dir, args.model, series_tag, args.task, args.freq, args.dataset, LOG_FILE)
+            returns.append(r)
+            sharpes.append(s)
+            print(f"[Run {i:02d}] Return={r:.4f}  Sharpe={s:.4f}")
+        print("\n=== Aggregate results ===")
+        print(f"avg Return = {sum(returns)/len(returns):.4f}")
+        print(f"std Return = {np.std(returns):.4f}")
+        print(f"avg Sharpe = {sum(sharpes)/len(sharpes):.4f}")
+        print(f"std Sharpe = {np.std(sharpes):.4f}")
+        print(f"\n→ Saved to {LOG_FILE}")
+    aggregate_and_plot(
+        series_dir=series_dir,
+        freq=args.freq,
+        start_date_daily=TEST_START_DATE,
+        out_prefix="series"
+    )
 
-    returns, sharpes = [], []
-    for i in range(args.runs):
-        r, s = run_once(i, series_dir, args.model, series_tag, args.task, args.freq, args.dataset, LOG_FILE)
-        returns.append(r)
-        sharpes.append(s)
-        print(f"[Run {i:02d}] Return={r:.4f}  Sharpe={s:.4f}")
+"""
+python -m  finrl.batch_runs --runs 20 --model ppo --task trading --freq daily --dataset stable
 
-    print("\n=== Aggregate results ===")
-    print(f"avg Return = {sum(returns)/len(returns):.4f}")
-    print(f"std Return = {np.std(returns):.4f}")
-    print(f"avg Sharpe = {sum(sharpes)/len(sharpes):.4f}")
-    print(f"std Sharpe = {np.std(sharpes):.4f}")
-    print(f"\n→ Saved to {LOG_FILE}")
+with drawing:
+python -m  finrl.batch_runs --model ppo --task trading --freq daily --dataset stable --aggregate_only
+
+"""

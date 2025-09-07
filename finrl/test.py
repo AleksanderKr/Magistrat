@@ -199,13 +199,13 @@ def test(
 
         # ---------- Agent  ----------
         daily_ret = np.diff(assets) / assets[:-1]
-        steps_per_year = 252 if not intraday else int(
-            252 * max(1, 390 // int(getattr(env_instance, "rebalance_every", 1))))
-        ann_vol = daily_ret.std(ddof=0) * np.sqrt(steps_per_year)
+        steps_per_year = 252 if not intraday else 252 * 390
+        sigma = daily_ret.std(ddof=1)
+        ann_vol = sigma * np.sqrt(steps_per_year) if sigma > 0 else np.nan
         cagr = (assets[-1] / assets[0]) ** (steps_per_year / max(1, len(daily_ret))) - 1
         max_dd = (assets / np.maximum.accumulate(assets) - 1).min()
         rf = 0.0
-        sharpe = (daily_ret.mean() - rf / steps_per_year) / daily_ret.std(ddof=1) * np.sqrt(steps_per_year) if daily_ret.std(ddof=1) > 0 else np.nan
+        sharpe = ((daily_ret.mean() - rf/steps_per_year) / sigma) * np.sqrt(steps_per_year) if sigma > 0 else np.nan
 
         # ----------  BnH ----------
         bnh_daily_ret = np.diff(bnh_curve) / bnh_curve[:-1]
@@ -227,6 +227,9 @@ def test(
             bnh_curve = bnh_curve[:n]
             assets = assets[:n]
 
+        np.save(os.path.join(cwd, "assets.npy"), assets.astype(float))
+        np.save(os.path.join(cwd, "bnh.npy"), bnh_curve.astype(float))
+
         save_equity_curve(
             agent_curve=assets,
             ref_curve=bnh_curve,
@@ -235,7 +238,7 @@ def test(
             intraday=intraday
         )
 
-        return episode_total_assets, (cagr / ann_vol if ann_vol else np.nan), cagr, alpha_pct, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd
+        return episode_total_assets, sharpe, cagr, alpha_pct, ann_vol, bnh_ann_vol, max_dd, bnh_max_dd
 
     elif drl_lib == "rllib":
         from finrl.agents.rllib.models import DRLAgent as DRLAgent_rllib
