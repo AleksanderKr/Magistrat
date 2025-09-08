@@ -1,0 +1,82 @@
+Test Finished!
+episode_return 1.2006550399653328
+Episode return: 20.07%   |   Sharpe: 1.615
+Buy&Hold return: 30.62%            |   Agent vs BnH: -8.08%
+CAGR: 20.15%   |   AnnVol: 11.80%   |   MaxDD: -6.27%
+BnH  AnnVol: 12.54%   |   MaxDD: -6.91%
+[Run 19] Return=0.2007  Sharpe=1.6151
+
+=== Aggregate results ===
+avg Return = 0.2388
+std Return = 0.0557
+avg Sharpe = 1.8038
+std Sharpe = 0.4146
+
+→ Saved to fixed_trading_daily_stable.xlsx
+
+=== Aggregate metrics (mean ± std) ===
+EpisodeReturn | CAGR         | AnnVol       | MaxDD        | Sharpe       | Alpha_vs_BnH
+--------------+--------------+--------------+--------------+--------------+-------------
+0.238812 ± 0.055727 | 0.239874 ± 0.055999 | 0.124141 ± 0.008488 | -0.073004 ± 0.016435 | 1.803766 ± 0.414614 | -0.051612 ± 0.042663
+(magistrat) krucz@krucz-B650-EAGLE-AX:~/Desktop/magistrat/Magistrat$ 
+
+
+SAC
+price_array:  252
+Test Finished!
+episode_return 1.188678516642792
+Episode return: 18.87%   |   Sharpe: 1.859
+Buy&Hold return: 30.62%            |   Agent vs BnH: -9.00%
+CAGR: 18.95%   |   AnnVol: 9.59%   |   MaxDD: -4.64%
+BnH  AnnVol: 12.54%   |   MaxDD: -6.91%
+[Run 19] Return=0.1887  Sharpe=1.8585
+
+=== Aggregate results ===
+avg Return = 0.1329
+std Return = 0.0534
+avg Sharpe = 1.2833
+std Sharpe = 0.4693
+
+→ Saved to fixed_trading_daily_stable.xlsx
+
+=== Aggregate metrics (mean ± std) ===
+EpisodeReturn | CAGR         | AnnVol       | MaxDD        | Sharpe       | Alpha_vs_BnH
+--------------+--------------+--------------+--------------+--------------+-------------
+0.132894 ± 0.053373 | 0.133462 ± 0.053612 | 0.103385 ± 0.017340 | -0.063273 ± 0.015757 | 1.283345 ± 0.469296 | -0.132699 ± 0.040860
+(magistrat) krucz@krucz-B650-EAGLE-AX:~/Desktop/magistrat/Magistrat$ 
+
+st Finished!
+episode_return 1.2444248133613747
+Episode return: 24.44%   |   Sharpe: 1.885
+Buy&Hold return: 30.62%            |   Agent vs BnH: -4.73%
+CAGR: 24.55%   |   AnnVol: 12.04%   |   MaxDD: -8.41%
+BnH  AnnVol: 12.54%   |   MaxDD: -6.91%
+[Run 19] Return=0.2444  Sharpe=1.8849
+
+=== Aggregate results ===
+avg Return = 0.2468
+std Return = 0.0462
+avg Sharpe = 1.8574
+std Sharpe = 0.3600
+
+→ Saved to fixed_trading_daily_stable.xlsx
+
+=== Aggregate metrics (mean ± std) ===
+EpisodeReturn | CAGR         | AnnVol       | MaxDD        | Sharpe       | Alpha_vs_BnH
+--------------+--------------+--------------+--------------+--------------+-------------
+0.246821 ± 0.046218 | 0.247921 ± 0.046441 | 0.124718 ± 0.010973 | -0.073693 ± 0.013969 | 1.857448 ± 0.359975 | -0.045480 ± 0.035383
+(magistrat) krucz@krucz-B650-EAGLE-AX:~/Desktop/magistrat/Magistrat$ 
+
+
+=== Aggregate results ===
+avg Return = 0.2533
+std Return = 0.0543
+avg Sharpe = 1.8779
+std Sharpe = 0.3876
+
+→ Saved to fixed_trading_daily_stable.xlsx
+
+=== Aggregate metrics (mean ± std) ===
+EpisodeReturn | CAGR         | AnnVol       | MaxDD        | Sharpe       | Alpha_vs_BnH
+--------------+--------------+--------------+--------------+--------------+-------------
+0.253304 ± 0.054329 | 0.254437 ± 0.054597 | 0.125442 ± 0.008426 | -0.068926 ± 0.010463 | 1.877877 ± 0.387599 | -0.040517 ± 0.041593

@@ -3,7 +3,7 @@
 Examples
 --------
 python -m finrl.analyze_dow30_v2 --period train --mode all
-python -m finrl.analyze_dow30_v2 --period train --mode all --draw true
+python -m finrl.analyze_dow30_v2 --period val --mode turb --draw true
 python -m finrl.analyze_dow30_v2 --period train --mode all --draw true --include-intraday-on-daily true
 """
 
@@ -543,42 +543,101 @@ def analyze_volume(frames: Dict[str, pd.DataFrame], period: str, draw=False, bal
         A = np.log1p(F["train"]["volume"]).dropna(); B = np.log1p(F["val"]["volume"]).dropna(); C = np.log1p(F["test"]["volume"]).dropna()
         kde_plot_three(A, B, C, "log(1+volume) density (Intraday, Train/Val/Test)", "intra_kde_volume_all.png", "log(1+volume)", False)
 
-def mahal_turbulence_from_df(df: pd.DataFrame, window: int) -> pd.Series:
+def mahal_turbulence_from_df(df: pd.DataFrame, window: int,
+                             min_assets: int = 2, min_obs: int = 10) -> pd.Series:
     price = df.pivot(index="timestamp", columns="tic", values="close").sort_index()
     ret = price.pct_change()
     if ret.empty:
-        return pd.Series(dtype=float)
+        return pd.Series(dtype=float, index=ret.index)
     tser = pd.Series(np.nan, index=ret.index, dtype=float)
     for i in range(window, len(ret)):
-        hist = ret.iloc[i - window : i]
+        hist = ret.iloc[i - window:i]
         cur = ret.iloc[i]
         valid = cur.dropna().index
-        hist, cur = hist[valid], cur[valid]
-        if hist.shape[0] < 2 or len(valid) < 2:
+        if len(valid) < min_assets:
+            continue
+        hist = hist[valid].dropna(how="all")
+        if hist.shape[0] < min_obs:
             continue
         cov = hist.cov()
-        diff = cur - hist.mean()
+        mu = hist.mean()
+        diag = np.diag(cov.values)
+        keep = cov.columns[diag > 0]
+        if len(keep) < min_assets:
+            continue
+        cov = cov.loc[keep, keep]
+        mu = mu[keep]
+        curv = cur[keep]
         try:
             inv = np.linalg.pinv(cov.values)
-            tser.iloc[i] = float(diff.values @ inv @ diff.values.T)
+            diff = (curv.values - mu.values).reshape(1, -1)
+            tser.iloc[i] = (diff @ inv @ diff.T).item()
         except Exception:
             continue
     return tser
 
-def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False, balanced=False, include_intraday_on_daily=False):
-    t_bull = mahal_turbulence_from_df(frames["bull"], 252)
-    t_bullv = mahal_turbulence_from_df(frames["bullv"], 252)
-    t_bear = mahal_turbulence_from_df(frames["bearish"], 252)
-    t_intra = mahal_turbulence_from_df(frames["intra"], 390)
+def mahal_turbulence_intraday(df: pd.DataFrame, window: int = 120,
+                              min_assets: int = 3, min_obs: int = 20) -> pd.Series:
+    price = df.pivot(index="timestamp", columns="tic", values="close").sort_index()
+    ret = price.pct_change()
+    if ret.empty:
+        return pd.Series(dtype=float, index=ret.index)
+    tser = pd.Series(np.nan, index=ret.index, dtype=float)
+    dates = pd.to_datetime(ret.index).date
+    start = 0
+    n = len(ret)
+    while start < n:
+        d = dates[start]
+        end = start
+        while end < n and dates[end] == d:
+            end += 1
+        block = ret.iloc[start:end]
+        if len(block) <= window:
+            start = end
+            continue
+        for j in range(window, len(block)):
+            hist = block.iloc[j - window:j]
+            cur = block.iloc[j]
+            valid = cur.dropna().index
+            if len(valid) < min_assets:
+                continue
+            hist = hist[valid].dropna(how="all")
+            if hist.shape[0] < min_obs:
+                continue
+            cov = hist.cov(min_periods=max(5, min_obs // 2))
+            mu = hist.mean()
+            diag = np.nan_to_num(np.diag(cov.values))
+            keep = cov.columns[diag > 0]
+            if len(keep) < min_assets:
+                continue
+            cov = cov.loc[keep, keep]
+            mu = mu[keep]
+            curv = cur[keep]
+            try:
+                inv = np.linalg.pinv(cov.values)
+                diff = (curv.values - mu.values).reshape(1, -1)
+                tser.iloc[start + j] = (diff @ inv @ diff.T).item()
+            except Exception:
+                continue
+        start = end
+    return tser
 
-    bs, be = BULL_STABLE_PERIODS[period]
+def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False,
+                       balanced=False, include_intraday_on_daily=False):
+    t_bull  = mahal_turbulence_from_df(frames["bull"],   252)
+    t_bullv = mahal_turbulence_from_df(frames["bullv"],  252)
+    t_bear  = mahal_turbulence_from_df(frames["bearish"],252)
+    t_intra = mahal_turbulence_intraday(frames["intra"], window=120, min_assets=3, min_obs=20)
+
+    bs, be   = BULL_STABLE_PERIODS[period]
     bv_s, bv_e = BULL_VOLATILE_PERIODS[period]
     br_s, br_e = BEARISH_PERIODS[period]
-    is_, ie = INTRA_PERIODS[period]
-    t_bull = t_bull.loc[(t_bull.index >= pd.Timestamp(bs)) & (t_bull.index <= pd.Timestamp(be))]
-    t_bullv = t_bullv.loc[(t_bullv.index >= pd.Timestamp(bv_s)) & (t_bullv.index <= pd.Timestamp(bv_e))]
-    t_bear = t_bear.loc[(t_bear.index >= pd.Timestamp(br_s)) & (t_bear.index <= pd.Timestamp(br_e))]
-    t_intra = t_intra.loc[(t_intra.index >= pd.Timestamp(is_)) & (t_intra.index <= pd.Timestamp(ie))]
+    is_, ie  = INTRA_PERIODS[period]
+
+    t_bull  = t_bull.loc[(t_bull.index  >= pd.Timestamp(bs))  & (t_bull.index  <= pd.Timestamp(be))]
+    t_bullv = t_bullv.loc[(t_bullv.index>= pd.Timestamp(bv_s))& (t_bullv.index<= pd.Timestamp(bv_e))]
+    t_bear  = t_bear.loc[(t_bear.index >= pd.Timestamp(br_s)) & (t_bear.index <= pd.Timestamp(br_e))]
+    t_intra = t_intra.loc[(t_intra.index>= pd.Timestamp(is_)) & (t_intra.index<= pd.Timestamp(ie))]
 
     def stats(s: pd.Series):
         s = s.dropna()
@@ -587,11 +646,12 @@ def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False,
         return pd.Series({"mean": s.mean(), "median": s.median(), "p95": s.quantile(0.95), "max": s.max(), "N": len(s)})
 
     out = pd.concat({
-        REG_LABELS["bull"]: stats(t_bull),
-        REG_LABELS["bullv"]: stats(t_bullv),
-        REG_LABELS["bearish"]: stats(t_bear),
-        REG_LABELS["intra"]: stats(t_intra)
+        REG_LABELS["bull"]:   stats(t_bull),
+        REG_LABELS["bullv"]:  stats(t_bullv),
+        REG_LABELS["bearish"]:stats(t_bear),
+        REG_LABELS["intra"]:  stats(t_intra)
     }, axis=1).T.round(3)
+
     print("\n=== Turbulence index statistics ===")
     print(out.to_string())
 
@@ -603,13 +663,21 @@ def analyze_turbulence(frames: Dict[str, pd.DataFrame], period: str, draw=False,
             T["turb_daily"], f"{period}_kde_turb_daily.png", "Turbulence index", False
         )
         F = _get_intra_frames_all(True)
-        A = mahal_turbulence_from_df(F["train"], 390); B = mahal_turbulence_from_df(F["val"], 390); C = mahal_turbulence_from_df(F["test"], 390)
+        A = mahal_turbulence_intraday(F["train"], window=120, min_assets=3, min_obs=20)
+        B = mahal_turbulence_intraday(F["val"],   window=120, min_assets=3, min_obs=20)
+        C = mahal_turbulence_intraday(F["test"],  window=120, min_assets=3, min_obs=20)
+
         def _mask_intra_to_period(s: pd.Series, period_key: str) -> pd.Series:
             is2, ie2 = INTRA_PERIODS[period_key]
             idx_lo, idx_hi = pd.Timestamp(is2), pd.Timestamp(ie2)
             return s.loc[(s.index >= idx_lo) & (s.index <= idx_hi)]
-        A = _mask_intra_to_period(A, "train").dropna(); B = _mask_intra_to_period(B, "val").dropna(); C = _mask_intra_to_period(C, "test").dropna()
-        kde_plot_three(A, B, C, "Turbulence index density (Intraday, Train/Val/Test)", "intra_kde_turb_all.png", "Turbulence index", False)
+
+        A = _mask_intra_to_period(A, "train").dropna()
+        B = _mask_intra_to_period(B, "val").dropna()
+        C = _mask_intra_to_period(C, "test").dropna()
+
+        if min(len(A), len(B), len(C)) > 1:
+            kde_plot_three(A, B, C, "Turbulence index density (Intraday, Train/Val/Test)", "intra_kde_turb_all.png", "Turbulence index", False)
 
 
 def compute_bollinger_rates(frames: Dict[str, pd.DataFrame]):

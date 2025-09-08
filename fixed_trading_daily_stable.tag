@@ -3,3 +3,6 @@
 # NEW_SERIES FIXED_ppo_trading_daily_stable_runs_batch
 # NEW_SERIES FIXED_ppo_trading_daily_stable_runs_batch
 # NEW_SERIES FIXED_ppo_trading_daily_stable_runs_batch
+# NEW_SERIES FIXED_sac_trading_daily_stable_runs_batch
+# NEW_SERIES FIXED_td3_trading_daily_stable_runs_batch
+# NEW_SERIES FIXED_ddpg_trading_daily_stable_runs_batch

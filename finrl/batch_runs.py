@@ -38,15 +38,15 @@ python -m finrl.batch_runs --task trading --freq daily --dataset stable --note b
 """
 
 ERL_FIXED_PARAMS = {
-    "learning_rate":    3.237777919667423e-04,
-    "batch_size":       4096,
-    "gamma":            0.9777893947700497,
-    "net_dimension":    1024,
+    "learning_rate":    3.950916564838231e-05,
+    "batch_size":       1024,
+    "gamma":            0.9646752384611725,
+    "net_dimension":    512,
     "target_step":      8192,
     "horizon_len":      2048,
-    "repeat_times":     4.0,
+    "repeat_times":     2.0,
     "buffer_size":      int(1e6),
-    "buffer_init_size": 8192,
+    "buffer_init_size": 2048,
     "eval_gap":         64,
     "eval_times":       16,
     "if_use_per":       False,
