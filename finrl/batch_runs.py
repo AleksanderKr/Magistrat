@@ -94,14 +94,14 @@ def _pick_env_and_dates(task: str, freq: str, dataset: str):
         if dataset == "stable":
             s_train, e_train = TRAIN_START_DATE, TRAIN_END_DATE
             s_test, e_test = TEST_START_DATE, TEST_END_DATE
-        elif dataset == "crisis":
+        elif dataset == "volatile":
             s_train, e_train = CRISIS_TRAIN_START_DATE, CRISIS_TRAIN_END_DATE
             s_test, e_test = CRISIS_TEST_START_DATE, CRISIS_TEST_END_DATE
         elif dataset == "bear":
             s_train, e_train = BEAR2008_TRAIN_START_DATE, BEAR2008_TRAIN_END_DATE
             s_test, e_test = BEAR2008_TEST_START_DATE, BEAR2008_TEST_END_DATE
         else:
-            raise ValueError("Use 'stable' or 'crisis' or 'bear'")
+            raise ValueError("Use 'stable' or 'volatile' or 'bear'")
     if task == "trading":
         if freq == "intraday":
             env_train, env_test = IntradayTradingTrainEnv, IntradayTradingTestEnv
@@ -269,7 +269,7 @@ def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, in
         rf = 0.0
         sharpe = ((rets.mean() - rf/steps_per_year) / rets.std(ddof=1) * np.sqrt(steps_per_year)) if rets.std(ddof=1) > 0 else np.nan
         rows.append((ret, cagr, vol, mdd, sharpe, alpha))
-    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Return_vs_BnH"])
+    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Alpha_vs_BnH"])
     return df
 
 def _filter_tickers_intersection(tickers, data_source, interval, s_train, e_train, s_test, e_test):
@@ -366,7 +366,7 @@ if __name__ == "__main__":
     parser.add_argument("--note",  default="batch")
     parser.add_argument("--task", choices=["trading", "allocation"], default="trading")
     parser.add_argument("--freq", choices=["daily", "intraday"], default="daily")
-    parser.add_argument("--dataset", choices=["stable", "crisis", "intraday", "bear"], default="stable")
+    parser.add_argument("--dataset", choices=["stable", "volatile", "intraday", "bear"], default="stable")
     parser.add_argument("--aggregate_only", action="store_true")
     parser.add_argument("--compare_agents", type=str, default="")
     args = parser.parse_args()
