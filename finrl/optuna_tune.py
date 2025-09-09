@@ -282,7 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", choices=["stable", "volatile", "intraday", "bear"], default="stable")
 
     args = parser.parse_args()
-    LOG_FILE = f"optuna_{args.task}_{args.freq}_{args.dataset}.csv"
+    LOG_FILE = f"OPTUNA_CSV/optuna_{args.task}_{args.freq}_{args.dataset}.csv"
 
     # new study & folder
     series_tag = f"{args.task.upper()}_{args.mode.upper()}_{args.model}_{args.freq}_{args.dataset}_{args.trials}trials_{datetime.datetime.now():%y%m%d_%H%M%S}"

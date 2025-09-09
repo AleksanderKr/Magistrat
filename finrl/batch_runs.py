@@ -269,7 +269,7 @@ def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, in
         rf = 0.0
         sharpe = ((rets.mean() - rf/steps_per_year) / rets.std(ddof=1) * np.sqrt(steps_per_year)) if rets.std(ddof=1) > 0 else np.nan
         rows.append((ret, cagr, vol, mdd, sharpe, alpha))
-    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Alpha_vs_BnH"])
+    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Return_vs_BnH"])
     return df
 
 def _filter_tickers_intersection(tickers, data_source, interval, s_train, e_train, s_test, e_test):
