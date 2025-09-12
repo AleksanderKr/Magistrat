@@ -1,3 +1,7 @@
 # NEW_SERIES FIXED_ddpg_allocation_daily_bear_runs_batch
 # NEW_SERIES FIXED_ppo_allocation_daily_bear_runs_batch
 # NEW_SERIES FIXED_ppo_allocation_daily_bear_runs_batch
+# NEW_SERIES FIXED_ppo_allocation_daily_bear_runs_batch
+# NEW_SERIES FIXED_sac_allocation_daily_bear_runs_batch
+# NEW_SERIES FIXED_td3_allocation_daily_bear_runs_batch
+# NEW_SERIES FIXED_sac_allocation_daily_bear_runs_batch

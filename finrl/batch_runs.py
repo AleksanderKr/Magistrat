@@ -28,8 +28,8 @@ from finrl.config import (
 
 """
 start with
-python -m finrl.batch_runs --runs 20 --model ppo  --task trading --freq daily --dataset stable --note batch
-python -m finrl.batch_runs --runs 20 --model ddpg --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 5 --model sac  --task allocation --freq daily --dataset bear --note batch
+python -m finrl.batch_runs --runs 10 --model ppo --task allocation --freq intraday --dataset intraday --note batch
 python -m finrl.batch_runs --runs 20 --model sac  --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model td3  --task trading --freq daily --dataset stable --note batch
 
@@ -38,16 +38,16 @@ python -m finrl.batch_runs --task trading --freq daily --dataset stable --note b
 """
 
 ERL_FIXED_PARAMS = {
-    "learning_rate":    4.947880017507564e-04,
+    "learning_rate":    1.3204392685000274e-05,
     "batch_size":       512,
-    "gamma":            0.9743291355292365,
-    "net_dimension":    512,
-    "net_dims":         [512, 256],
+    "gamma":            0.9954379276836015,
+    "net_dimension":    256,
+    "net_dims":         [256, 256],
     "target_step":      8192,
     "horizon_len":      2048,
     "repeat_times":     2.0,
     "buffer_size":      int(1e6),
-    "buffer_init_size": 1024,
+    "buffer_init_size": 2048,
     "eval_gap":         64,
     "eval_times":       16,
     "if_use_per":       False,
@@ -82,6 +82,18 @@ def append_log(row: dict, log_file: str) -> None:
             df_new.to_excel(writer, index=False, header=False, startrow=start_row)
     else:
         df_new.to_excel(log_file, index=False)
+
+def _next_trial_start(series_dir: str) -> int:
+    if not os.path.isdir(series_dir):
+        return 0
+    idxs = []
+    for name in os.listdir(series_dir):
+        if name.startswith("trial_"):
+            try:
+                idxs.append(int(name.split("_")[1]))
+            except ValueError:
+                pass
+    return (max(idxs) + 1) if idxs else 0
 
 def _pick_env_and_dates(task: str, freq: str, dataset: str):
     if freq == "intraday":
@@ -199,7 +211,12 @@ def run_once(run_idx: int, series_dir: str, model_name: str, series_tag: str,
 def _is_intraday(freq: str) -> bool:
     return freq == "intraday"
 
-def _stack_curves(series_dir: str):
+def _maybe_trim(curve: np.ndarray, max_steps: int | None):
+    if max_steps and max_steps > 0:
+        return curve[:max_steps]
+    return curve
+
+def _stack_curves(series_dir: str, max_steps: int = None):
     assets, bnhs = [], []
     trials = sorted([d for d in os.listdir(series_dir) if d.startswith("trial_")])
     for t in trials:
@@ -208,6 +225,9 @@ def _stack_curves(series_dir: str):
         if os.path.isfile(p_assets) and os.path.isfile(p_bnh):
             a = np.load(p_assets)
             b = np.load(p_bnh)
+            if max_steps:
+                a = a[:max_steps]
+                b = b[:max_steps]
             n = min(len(a), len(b))
             assets.append(a[:n])
             bnhs.append(b[:n])
@@ -224,14 +244,14 @@ def _aggregate_equity(curves: np.ndarray, intraday: bool, start_date: str):
     median = np.median(norm, axis=0)
     p10, p90 = np.percentile(norm, [10, 90], axis=0)
     n = mean.shape[0]
-    if intraday:
-        x = np.arange(n)
-    else:
-        x = pd.bdate_range(start=start_date, periods=n)
+    x = np.arange(n) if intraday else pd.bdate_range(start=start_date, periods=n)
     return x, mean, median, p10, p90
 
 def _plot_equity_band(curves: np.ndarray, ref_curve: np.ndarray, path: str,
-                      intraday: bool, start_date: str):
+                      intraday: bool, start_date: str, max_steps: int | None = None):
+    if max_steps:
+        curves = curves[:, :max_steps]
+        ref_curve = ref_curve[:max_steps]
     x, mean, median, p10, p90 = _aggregate_equity(curves, intraday, start_date)
     fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
     ax.fill_between(x, p10, p90, alpha=0.25, label="10–90%")
@@ -241,23 +261,34 @@ def _plot_equity_band(curves: np.ndarray, ref_curve: np.ndarray, path: str,
     if len(ref) != len(mean):
         ref = ref[:len(mean)]
     ax.plot(x, ref, linewidth=1.2, linestyle=":", label="Buy & Hold")
-    ax.set_xlabel("Step" if intraday else "Date")
+    ax.set_xlabel("Date")
     ax.set_ylabel("Cumulative return")
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    if not intraday:
-        ax.set_xlim(x[0], x[-1])
-        fig.autofmt_xdate()
+    if intraday:
+        n = len(x)
+        days_needed = (n + 390 - 1) // 390
+        bdays = pd.bdate_range(start=start_date, periods=days_needed)
+        ax.xaxis.set_major_locator(mtick.MultipleLocator(390))
+        ax.xaxis.set_major_formatter(
+            mtick.FuncFormatter(lambda v, pos: bdays[int(v // 390)].strftime("%Y-%m-%d")
+                                if 0 <= int(v // 390) < len(bdays) else "")
+        )
+        ax.set_xlim(0, n - 1)
+    else:
+        ax.set_xlim(x[0], x[-1]); fig.autofmt_xdate()
     ax.grid(True, which="major", linestyle="--", alpha=0.6)
     ax.legend()
     plt.tight_layout()
     plt.savefig(path, bbox_inches="tight")
     plt.close(fig)
 
-def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, intraday: bool):
+def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, intraday: bool, max_steps: int | None = None):
     rows = []
     steps_per_year = 252 if not intraday else 252*390
     for a in curves:
         n = min(len(a), len(ref_curve))
+        if max_steps:
+            n = min(n, max_steps)
         a = a[:n].astype(float)
         b = ref_curve[:n].astype(float)
         ret = a[-1]/a[0] - 1.0
@@ -265,12 +296,12 @@ def _summarise_metrics_from_curves(curves: np.ndarray, ref_curve: np.ndarray, in
         vol = rets.std(ddof=1) * np.sqrt(steps_per_year) if rets.size else np.nan
         cagr = (a[-1]/a[0])**(steps_per_year/max(1, rets.size)) - 1 if rets.size else np.nan
         mdd = (a/np.maximum.accumulate(a) - 1).min()
-        bret = b[-1]/b[0]
-        alpha = a[-1]/(a[0]*bret) - 1
+        bret = b[-1]/b[0] - 1.0
+        ret_vs_bnh = ret - bret
         rf = 0.0
         sharpe = ((rets.mean() - rf/steps_per_year) / rets.std(ddof=1) * np.sqrt(steps_per_year)) if rets.std(ddof=1) > 0 else np.nan
-        rows.append((ret, cagr, vol, mdd, sharpe, alpha))
-    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Alpha_vs_BnH"])
+        rows.append((ret, cagr, vol, mdd, sharpe, ret_vs_bnh))
+    df = pd.DataFrame(rows, columns=["EpisodeReturn", "CAGR", "AnnVol", "MaxDD", "Sharpe", "Return_vs_BnH"])
     return df
 
 def _filter_tickers_intersection(tickers, data_source, interval, s_train, e_train, s_test, e_test):
@@ -283,7 +314,7 @@ def _filter_tickers_intersection(tickers, data_source, interval, s_train, e_trai
     return keep
 
 def _print_agg_table(df: pd.DataFrame):
-    cols = ["EpisodeReturn","CAGR","AnnVol","MaxDD","Sharpe","Alpha_vs_BnH"]
+    cols = ["EpisodeReturn","CAGR","AnnVol","MaxDD","Sharpe","Return_vs_BnH"]
     mean = df[cols].mean()
     std  = df[cols].std(ddof=0)
     widths = {c: max(len(c), 12) for c in cols}
@@ -299,8 +330,19 @@ def _series_dir_for(model: str, task: str, freq: str, dataset: str, note: str):
     tag = f"FIXED_{model}_{task}_{freq}_{dataset}_runs_{note}"
     return os.path.join("fixed_runs", tag)
 
-def _agent_mean_curve(series_dir: str, intraday: bool, start_date: str):
-    curves, bnh = _stack_curves(series_dir)
+def _test_start_for(freq: str, dataset: str) -> str:
+    if freq == "intraday":
+        return INTRA_TEST_START
+    if dataset == "stable":
+        return TEST_START_DATE
+    if dataset == "volatile":
+        return CRISIS_TEST_START_DATE
+    if dataset == "bear":
+        return BEAR2008_TEST_START_DATE
+    raise ValueError("Use 'stable' or 'volatile' or 'bear' (or 'intraday' with freq='intraday')")
+
+def _agent_mean_curve(series_dir: str, intraday: bool, start_date: str, max_steps: int | None = None):
+    curves, bnh = _stack_curves(series_dir, max_steps=max_steps)
     if curves is None:
         return None, None, None
     norm = curves / curves[:, [0]]
@@ -312,14 +354,20 @@ def _agent_mean_curve(series_dir: str, intraday: bool, start_date: str):
         ref = ref[:n]
     return x, mean, ref
 
-def compare_and_plot_agents(agents_csv: str, task: str, freq: str, dataset: str, note: str, start_date_daily: str, out_name: str):
+def _intraday_dates(start_date: str, n: int) -> pd.DatetimeIndex:
+    days_needed = (n + 390 - 1) // 390
+    bdays = pd.bdate_range(start=start_date, periods=days_needed)
+    step_idx = np.arange(n) // 390
+    return pd.DatetimeIndex(bdays.values[step_idx])
+
+def compare_and_plot_agents(agents_csv: str, task: str, freq: str, dataset: str, note: str, start_date_daily: str, out_name: str, max_steps: int | None = None):
     agents = [a.strip() for a in agents_csv.split(",") if a.strip()]
     intraday = (freq == "intraday")
     xs, means, labels = [], [], []
     ref_any = None
     for a in agents:
         d = _series_dir_for(a, task, freq, dataset, note)
-        x, m, ref = _agent_mean_curve(d, intraday, start_date_daily)
+        x, m, ref = _agent_mean_curve(d, intraday, start_date_daily, max_steps=max_steps)
         if x is None:
             continue
         xs.append(x); means.append(m); labels.append(a.upper())
@@ -333,32 +381,100 @@ def compare_and_plot_agents(agents_csv: str, task: str, freq: str, dataset: str,
         ax.plot(x, m, linewidth=1.8, label=lbl)
     if ref_any is not None:
         ax.plot(xs[0], ref_any[:len(xs[0])], linewidth=1.2, linestyle="--", label="Buy & Hold")
-    ax.set_xlabel("Step" if intraday else "Date")
+    ax.set_xlabel("Date")
     ax.set_ylabel("Cumulative return")
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-    if not intraday:
+    if intraday:
+        n = len(xs[0])
+        days_needed = (n + 390 - 1) // 390
+        bdays = pd.bdate_range(start=start_date_daily, periods=days_needed)
+        ax.xaxis.set_major_locator(mtick.MultipleLocator(390))
+        ax.xaxis.set_major_formatter(
+            mtick.FuncFormatter(lambda v, pos: bdays[int(v // 390)].strftime("%Y-%m-%d")
+                                if 0 <= int(v // 390) < len(bdays) else "")
+        )
+        ax.set_xlim(0, n - 1)
+    else:
         ax.set_xlim(xs[0][0], xs[0][-1]); fig.autofmt_xdate()
     ax.grid(True, which="major", linestyle="--", alpha=0.6)
     ax.legend()
     plt.tight_layout()
-    out_dir = _series_dir_for(agents[0], task, freq, dataset, note)
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+    os.makedirs(out_dir, exist_ok=True)
     plt.savefig(os.path.join(out_dir, out_name), bbox_inches="tight")
     plt.close(fig)
 
-def aggregate_and_plot(series_dir: str, freq: str, start_date_daily: str, out_prefix: str):
-    curves, bnh = _stack_curves(series_dir)
+def _fmt_pct(x: float) -> str:
+    if np.isnan(x):
+        return "nan"
+    return f"{x*100:.2f}%"
+
+def _print_table_row(agent: str, task: str, freq: str, dataset: str, df: pd.DataFrame):
+    cols = ["EpisodeReturn","Sharpe","CAGR","AnnVol","MaxDD","Return_vs_BnH"]
+    mean = df[cols].mean(numeric_only=True)
+    std  = df[cols].std(ddof=0, numeric_only=True)
+    ret_s = f"{_fmt_pct(mean['EpisodeReturn'])} ± {_fmt_pct(std['EpisodeReturn'])}"
+    shr_s = f"{mean['Sharpe']:.3f} ± {std['Sharpe']:.3f}"
+    line = (
+        f"TABLE_ROW,{agent},{task},{freq},{dataset},{len(df)},"
+        f"{ret_s},"
+        f"{shr_s},"
+        f"{_fmt_pct(mean['CAGR'])},"
+        f"{_fmt_pct(mean['AnnVol'])},"
+        f"{_fmt_pct(mean['MaxDD'])},"
+        f"{_fmt_pct(mean['Return_vs_BnH'])}"
+    )
+    print(line)
+
+def _print_corr_row(agent: str, task: str, freq: str, dataset: str, df: pd.DataFrame):
+    x = df["EpisodeReturn"].astype(float)
+    y = df["Sharpe"].astype(float)
+    pearson = float(x.corr(y, method="pearson")) if x.size and y.size else float("nan")
+    kendall = float(x.corr(y, method="kendall")) if x.size and y.size else float("nan")
+    if x.size >= 2 and y.size >= 2 and np.isfinite(x).all() and np.isfinite(y).all():
+        slope, intercept = np.polyfit(x.values, y.values, 1)
+    else:
+        slope, intercept = float("nan"), float("nan")
+    line = (
+        f"CORR_ROW,{agent},{task},{freq},{dataset},"
+        f"{pearson:.3f},{kendall:.3f},{slope:.3f},{intercept:.3f}"
+    )
+    print(line)
+
+def _metrics_single_curve(curve: np.ndarray, intraday: bool):
+    steps_per_year = 252 if not intraday else 252*390
+    a = curve.astype(float)
+    rets = np.diff(a)/a[:-1]
+    cagr = (a[-1]/a[0])**(steps_per_year/max(1, rets.size)) - 1 if rets.size else np.nan
+    vol = rets.std(ddof=1) * np.sqrt(steps_per_year) if rets.size else np.nan
+    mdd = (a/np.maximum.accumulate(a) - 1).min() if a.size else np.nan
+    return cagr, vol, mdd
+
+def _print_bnh_row(task: str, freq: str, dataset: str, bnh_curve: np.ndarray):
+    intraday = _is_intraday(freq)
+    cagr, vol, mdd = _metrics_single_curve(bnh_curve, intraday)
+    line = f"BNH_ROW,{task},{freq},{dataset},{_fmt_pct(cagr)},{_fmt_pct(vol)},{_fmt_pct(mdd)}"
+    print(line)
+
+def aggregate_and_plot(series_dir: str, freq: str, start_date_daily: str, out_prefix: str,
+                       agent_name: str = "", task: str = "", dataset: str = "", max_steps: int | None = None):
+    curves, bnh = _stack_curves(series_dir, max_steps=max_steps)
     if curves is None:
         print("No trials found for aggregation.")
         return
     intraday = _is_intraday(freq)
     _plot_equity_band(curves, bnh, os.path.join(series_dir, f"{out_prefix}_EquityBand.jpg"),
-                      intraday, start_date_daily)
-    df = _summarise_metrics_from_curves(curves, bnh, intraday)
+                      intraday, start_date_daily, max_steps=max_steps)
+    df = _summarise_metrics_from_curves(curves, bnh, intraday, max_steps=max_steps)
     df.to_csv(os.path.join(series_dir, f"{out_prefix}_metrics_all.csv"), index=False)
     desc = df.describe()
     desc.to_csv(os.path.join(series_dir, f"{out_prefix}_metrics_desc.csv"), index=True)
     _print_agg_table(df)
-
+    if agent_name and task and dataset:
+        _print_table_row(agent_name, task, freq, dataset, df)
+        _print_corr_row(agent_name, task, freq, dataset, df)
+    if bnh is not None:
+        _print_bnh_row(task, freq, dataset, bnh)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -370,8 +486,11 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", choices=["stable", "volatile", "intraday", "bear"], default="stable")
     parser.add_argument("--aggregate_only", action="store_true")
     parser.add_argument("--compare_agents", type=str, default="")
+    parser.add_argument("--max_steps", type=int, default=0)
     args = parser.parse_args()
 
+    TEST_START_SELECTED = _test_start_for(args.freq, args.dataset)
+    MAX_STEPS = args.max_steps if args.max_steps > 0 else None
     LOG_FILE = f"fixed_{args.task}_{args.freq}_{args.dataset}.xlsx"
     series_tag = f"FIXED_{args.model}_{args.task}_{args.freq}_{args.dataset}_runs_{args.note}"
     series_dir = os.path.join("fixed_runs", series_tag)
@@ -379,37 +498,59 @@ if __name__ == "__main__":
     if not args.aggregate_only:
         init_log(series_tag, LOG_FILE)
         returns, sharpes = [], []
-        for i in range(args.runs):
+        start_idx = _next_trial_start(series_dir)
+        for i in range(start_idx, start_idx + args.runs):
             r, s = run_once(i, series_dir, args.model, series_tag, args.task, args.freq, args.dataset, LOG_FILE)
             returns.append(r)
             sharpes.append(s)
             print(f"[Run {i:02d}] Return={r:.4f}  Sharpe={s:.4f}")
+
         print("\n=== Aggregate results ===")
         print(f"avg Return = {sum(returns)/len(returns):.4f}")
         print(f"std Return = {np.std(returns):.4f}")
         print(f"avg Sharpe = {sum(sharpes)/len(sharpes):.4f}")
         print(f"std Sharpe = {np.std(sharpes):.4f}")
         print(f"\n→ Saved to {LOG_FILE}")
-    aggregate_and_plot(
-        series_dir=series_dir,
-        freq=args.freq,
-        start_date_daily=TEST_START_DATE,
-        out_prefix="series"
-    )
-    if args.compare_agents:
+
+    if not args.compare_agents:
+        aggregate_and_plot(
+            series_dir=series_dir,
+            freq=args.freq,
+            start_date_daily=TEST_START_SELECTED,
+            out_prefix="series",
+            agent_name=args.model.upper(),
+            task=args.task,
+            dataset=args.dataset,
+            max_steps=MAX_STEPS
+        )
+    else:
+        agents = [a.strip() for a in args.compare_agents.split(",") if a.strip()]
+        for a in agents:
+            d = _series_dir_for(a, args.task, args.freq, args.dataset, args.note)
+            aggregate_and_plot(
+                series_dir=d,
+                freq=args.freq,
+                start_date_daily=TEST_START_SELECTED,
+                out_prefix=f"series_{a.lower()}",
+                agent_name=a.upper(),
+                task=args.task,
+                dataset=args.dataset,
+                max_steps=MAX_STEPS
+            )
         compare_and_plot_agents(
             agents_csv=args.compare_agents,
             task=args.task,
             freq=args.freq,
             dataset=args.dataset,
             note=args.note,
-            start_date_daily=TEST_START_DATE,
-            out_name="Combined_Agents_Equity.jpg"
+            start_date_daily=TEST_START_SELECTED,
+            out_name=f"{args.task}_equity_{args.dataset}.jpg",
+            max_steps = MAX_STEPS
         )
 
 """
 start with
-python -m finrl.batch_runs --runs 20 --model ppo  --task trading --freq daily --dataset stable --note batch
+python -m finrl.batch_runs --runs 20 --model ppo  --task allocation --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model ddpg --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model sac  --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model td3  --task trading --freq daily --dataset stable --note batch

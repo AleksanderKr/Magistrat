@@ -54,7 +54,7 @@ def draw_pareto(csv_path: str, model: str, out_path: str | None = None, eps_shar
     plt.scatter(front["return"], front["sharpe"], s=28)
     plt.xlabel("Return")
     plt.ylabel("Sharpe")
-    plt.title(f"Pareto front: {model}")
+    plt.title(f"Pareto front: PPO")
     plt.grid(True, linewidth=0.5, alpha=0.4)
     plt.legend(loc="best", frameon=False)
 
