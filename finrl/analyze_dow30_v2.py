@@ -3,7 +3,7 @@
 Examples
 --------
 python -m finrl.analyze_dow30_v2 --period train --mode all
-python -m finrl.analyze_dow30_v2 --period val --mode turb --draw true
+python -m finrl.analyze_dow30_v2 --period val --mode boll --draw true
 python -m finrl.analyze_dow30_v2 --period train --mode all --draw true --include-intraday-on-daily true
 """
 
@@ -250,7 +250,10 @@ def bar_plot(values, labels, title, filename, ylabel, percent=False):
     ymax = np.nanmax(values) if len(values) else 1.0
     if not np.isfinite(ymax):
         ymax = 1.0
-    ax.set_ylim(0, ymax * 1.2)
+    if percent:
+        ax.set_ylim(0, ymax + 0.05)
+    else:
+        ax.set_ylim(0, ymax * 1.5)
     ax.set_xticks(x, labels)
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -282,7 +285,10 @@ def bar_plot_grouped(groups, bars, values, title, filename, ylabel, percent=Fals
     for i in range(n_bars):
         xi = x0 + i * (width + bar_gap)
         ax.bar(xi, values[i], width=width, label=bars[i])
-    ax.set_ylim(0, ymax * 1.2)
+    if percent:
+        ax.set_ylim(0, ymax + 0.03)
+    else:
+        ax.set_ylim(0, ymax * 1.5)
     ax.set_xticks(x0 + cluster_width / 2 - width / 2, groups)
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -771,16 +777,6 @@ if __name__ == "__main__":
         ANALYSIS_FUNCS["volume"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, incl_intra)
         ANALYSIS_FUNCS["corr"]({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         ANALYSIS_FUNCS["turb"](frames_buf, args.period, draw_flag, balanced, incl_intra)
-
-        if draw_flag:
-            try:
-                plot_bollinger_rates_all(incl_intra)
-            except Exception as e:
-                print(f"[warn] plot_bollinger_rates_all failed: {e}")
-            try:
-                plot_avg_corr_all(incl_intra)
-            except Exception as e:
-                print(f"[warn] plot_avg_corr_all failed: {e}")
     else:
         fn = ANALYSIS_FUNCS[args.mode]
         if args.mode in {"log_ret", "volatility", "volume"}:
@@ -789,8 +785,20 @@ if __name__ == "__main__":
             fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, balanced, ci_flag, incl_intra)
         elif args.mode == "boll":
             fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag, ci_flag, incl_intra)
-        elif args.mode in {"corr"}:
+        elif args.mode == "corr":
             fn({k: v.copy() for k, v in frames.items()}, args.period, draw_flag)
         elif args.mode == "turb":
             fn(frames_buf, args.period, draw_flag, balanced, incl_intra)
+
+    if draw_flag:
+        if args.mode in {"all", "boll"}:
+            try:
+                plot_bollinger_rates_all(incl_intra)
+            except Exception as e:
+                print(f"[warn] plot_bollinger_rates_all failed: {e}")
+        if args.mode in {"all", "corr"}:
+            try:
+                plot_avg_corr_all(incl_intra)
+            except Exception as e:
+                print(f"[warn] plot_avg_corr_all failed: {e}")
 

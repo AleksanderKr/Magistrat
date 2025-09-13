@@ -310,6 +310,7 @@ def _bar_grouped_splits(groups, bars, values, title, ylabel, percent=False):
     ax.set_xticks(x0 + (len(bars) * width + (len(bars) - 1) * gap) / 2 - width / 2, groups)
     ax.set_title(title)                 # np. "Share of positive slope"
     ax.set_ylabel(ylabel)               # "Share"
+    ax.margins(y=0.2)
     if percent:
         ax.yaxis.set_major_formatter(FuncFormatter(lambda y, pos: f"{y*100:.0f}%"))
     ax.grid(True, axis="y", alpha=0.3, linestyle="--", linewidth=0.7)
@@ -360,7 +361,7 @@ overall_end = max(
     to_ts(INTRA_TEST_END),
 )
 
-panel = processor.download_data(
+"""panel = processor.download_data(
     ticker_list=DOW_30_TICKER,
     start_date=overall_start.strftime("%Y-%m-%d"),
     end_date=overall_end.strftime("%Y-%m-%d"),
@@ -379,7 +380,21 @@ bnh = bnh[bnh["n_constituents"] >= 20]
 
 fig = plt.figure(figsize=(12, 4.5))
 ax = plt.gca()
-ax.plot(bnh["timestamp"], bnh["eqw_bnh"], linewidth=1.2, label="Equal-weight B&H (DOW30)")
+ax.plot(bnh["timestamp"], bnh["eqw_bnh"], linewidth=1.2, label="DJIA") # DOW 30 not DJIA
+"""
+djia = processor.download_data(
+    ticker_list=["^DJI"],
+    start_date=overall_start.strftime("%Y-%m-%d"),
+    end_date=overall_end.strftime("%Y-%m-%d"),
+    time_interval="1d"
+)
+djia = processor.clean_data(djia).copy()
+djia["timestamp"] = pd.to_datetime(djia["timestamp"])
+djia = djia.sort_values("timestamp")
+
+fig = plt.figure(figsize=(12, 4.5))
+ax = plt.gca()
+ax.plot(djia["timestamp"], djia["close"], linewidth=1.2, label="DJIA")
 
 big_blocks = [
     ("Bullish Stable",   to_ts(TRAIN_START_DATE),          to_ts(TEST_END_DATE),            0.07, "lightgreen"),
@@ -413,8 +428,8 @@ for label, s, e in sub_blocks:
                 ha="center", va="top", fontsize=8)
     ax.axvline(e, linestyle="--", linewidth=0.8, color="k", alpha=0.5)
 
-ax.set_title("Dataset splits presented on equal-weight B&H of DOW30")
-ax.set_ylabel("Normalised level")
+ax.set_title("Dataset splits presented on DJIA index")
+ax.set_ylabel("Index value")
 ax.set_xlabel("Date")
 ax.legend(loc="upper left", fontsize=9, frameon=False)
 locator = AutoDateLocator()

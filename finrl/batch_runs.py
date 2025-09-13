@@ -29,7 +29,7 @@ from finrl.config import (
 """
 start with
 python -m finrl.batch_runs --runs 5 --model sac  --task allocation --freq daily --dataset bear --note batch
-python -m finrl.batch_runs --runs 10 --model ppo --task allocation --freq intraday --dataset intraday --note batch
+python -m finrl.batch_runs --runs 5 --model ddpg --task allocation --freq intraday --dataset intraday --note batch
 python -m finrl.batch_runs --runs 20 --model sac  --task trading --freq daily --dataset stable --note batch
 python -m finrl.batch_runs --runs 20 --model td3  --task trading --freq daily --dataset stable --note batch
 
