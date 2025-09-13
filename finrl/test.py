@@ -14,7 +14,6 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
-
 import pandas as pd
 import matplotlib.ticker as mtick
 import matplotlib.pyplot as plt
@@ -22,6 +21,23 @@ import matplotlib.pyplot as plt
 def _is_intraday(interval: str) -> bool:
     s = (interval or "").lower()
     return s.endswith("m") or s.endswith("min")
+
+def _minutes_per_bar(interval: str) -> int:
+    s = (interval or "").lower().strip()
+    if s.endswith("min"):
+        s = s[:-3] + "m"
+    if s.endswith("m"):
+        try:
+            return int(s[:-1]) if s[:-1] else 1
+        except ValueError:
+            return 1
+    return 0
+
+def _steps_per_day(interval: str) -> int:
+    mpb = _minutes_per_bar(interval)
+    if mpb > 0:
+        return max(1, 390 // mpb)
+    return 1
 
 def save_equity_curve(agent_curve: np.ndarray,
                       ref_curve: np.ndarray,
@@ -51,8 +67,6 @@ def save_equity_curve(agent_curve: np.ndarray,
     plt.savefig(path, bbox_inches="tight")
     plt.close(fig)
 
-
-
 def test(
     start_date,
     end_date,
@@ -67,10 +81,8 @@ def test(
     env_extra=None,
     **kwargs,
 ):
-    # import data processor
     from finrl.meta.data_processor import DataProcessor
 
-    # fetch data
     dp = DataProcessor(data_source, **kwargs)
     data = dp.download_data(ticker_list, start_date, end_date, time_interval)
     data = dp.clean_data(data)
@@ -80,10 +92,10 @@ def test(
         data = dp.add_vix(data)
     price_array, tech_array, turbulence_array = dp.df_to_array(data, if_vix)
     intraday = _is_intraday(time_interval)
-    default_lookback = 390 if intraday else 252  # 1 session vs ~1 year of days
-    default_reward = 2000.0 if intraday else 100.0  # stronger signal for minute bars
-    default_tc = 1e-3  # 0.1% per traded notional
-    default_rebal = 5 if intraday else 1  # rebalance every 5 min vs every step
+    default_lookback = 390 if intraday else 252
+    default_reward = 2000.0 if intraday else 100.0
+    default_tc = 1e-3
+    default_rebal = 5 if intraday else 1
 
     env_args = {
         "price_array": price_array,
@@ -106,7 +118,6 @@ def test(
         tech_dim = len(technical_indicator_list)
         state_space = stock_dim
 
-        # number of simulation steps (works for both daily and intraday)
         max_step_idx = int(data.index.nunique() - 1)
 
         env_instance = StockPortfolioEnv(
@@ -162,8 +173,6 @@ def test(
             tech_array=tech_array,
             turbulence_array=turbulence_array,
         )
-    # load elegantrl needs state dim, action dim and net dim
-    #net_dimension = kwargs.get("net_dimension", 2**7)
     cwd = kwargs.get("cwd", "./" + str(model_name))
     net_dimension = kwargs.get("net_dimension", None)
     if net_dimension is None:
@@ -186,7 +195,6 @@ def test(
         )
         assets = np.asarray(episode_total_assets, dtype=float)
 
-        # ---------- Buy & Hold ----------
         init_cash = getattr(env_instance, "initial_capital",
                             getattr(env_instance, "initial_amount", 1e6))
         first_px, last_px = price_array[0], price_array[-1]
@@ -197,7 +205,6 @@ def test(
         bnh_final = bnh_curve[-1]
         bnh_return = bnh_final / init_cash
 
-        # ---------- Agent  ----------
         daily_ret = np.diff(assets) / assets[:-1]
         steps_per_year = 252 if not intraday else 252 * 390
         sigma = daily_ret.std(ddof=1)
@@ -206,22 +213,22 @@ def test(
         max_dd = (assets / np.maximum.accumulate(assets) - 1).min()
         rf = 0.0
         sharpe = ((daily_ret.mean() - rf/steps_per_year) / sigma) * np.sqrt(steps_per_year) if sigma > 0 else np.nan
+        if intraday:
+            spd = _steps_per_day(time_interval)
+            sharpe = sharpe / np.sqrt(spd)
 
-        # ----------  BnH ----------
         bnh_daily_ret = np.diff(bnh_curve) / bnh_curve[:-1]
         bnh_ann_vol = bnh_daily_ret.std(ddof=0) * np.sqrt(steps_per_year)
         bnh_max_dd = (bnh_curve / np.maximum.accumulate(bnh_curve) - 1).min()
 
         alpha_pct = assets[-1] / (assets[0] * bnh_return) - 1
 
-        # ---------- print ----------
         print(
             f"Episode return: {assets[-1] / assets[0] - 1:.2%}   |   Sharpe: {sharpe:.3f}")
         print(f"Buy&Hold return: {bnh_return - 1:.2%}            |   Agent vs BnH: {alpha_pct:.2%}")
         print(f"CAGR: {cagr:.2%}   |   AnnVol: {ann_vol:.2%}   |   MaxDD: {max_dd:.2%}")
         print(f"BnH  AnnVol: {bnh_ann_vol:.2%}   |   MaxDD: {bnh_max_dd:.2%}")
 
-        # ---------- plot ----------
         if len(bnh_curve) != len(assets):
             n = min(len(bnh_curve), len(assets))
             bnh_curve = bnh_curve[:n]
@@ -262,14 +269,12 @@ def test(
     else:
         raise ValueError("DRL library input is NOT supported. Please check.")
 
-
 if __name__ == "__main__":
     env = StockTradingEnv
 
-    # demo for elegantrl
     kwargs = (
         {}
-    )  # in current meta, with respect yahoofinance, kwargs is {}. For other data sources, such as joinquant, kwargs is not empty
+    )
 
     account_value_erl = test(
         start_date=TEST_START_DATE,
@@ -285,4 +290,3 @@ if __name__ == "__main__":
         net_dimension=512,
         kwargs=kwargs,
     )
-
